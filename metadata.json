@@ -1,0 +1,8 @@
+{
+  "name": "Remix Marea Mutante",
+  "description": "Juego de supervivencia marina en 2D: construye tu balsa, mejora habilidades, recolecta botín y combate criaturas mutantes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

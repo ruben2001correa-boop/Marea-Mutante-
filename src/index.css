@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-display: 'Outfit', system-ui, sans-serif;
+    --font-sans: 'Plus Jakarta Sans', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    font-family: var(--font-sans);
+    background-color: #06131d;
+    color: #eef6ff;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+.font-mono-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom thin dark scrollbar for bottom deck on compact viewports */
+.deck-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.deck-scroll::-webkit-scrollbar-track {
+  background: #081520;
+}
+
+.deck-scroll::-webkit-scrollbar-thumb {
+  background: #234663;
+  border-radius: 3px;
+}

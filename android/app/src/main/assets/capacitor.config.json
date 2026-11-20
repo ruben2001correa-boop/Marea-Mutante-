@@ -1,0 +1,9 @@
+{
+	"appId": "com.mareamutante.game",
+	"appName": "Marea Mutante",
+	"webDir": "dist",
+	"android": {
+		"backgroundColor": "#06131d",
+		"allowMixedContent": true
+	}
+}
