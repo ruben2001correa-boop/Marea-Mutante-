@@ -24,7 +24,7 @@ export const WEAPONS: WeaponDef[] = [
     staminaCost: 6,
     projSpeed: 420,
     description: 'Estocada larga y disparo de arpón cargado contra monstruos marinos.',
-    craftCost: { mad: 8, cht: 10, tit: 2 },
+    craftCost: { mad: 14, cht: 16, hie: 6, tit: 3 },
   },
   {
     id: 'tridente_abisal',
@@ -36,7 +36,9 @@ export const WEAPONS: WeaponDef[] = [
     cooldown: 0.28,
     staminaCost: 7,
     projSpeed: 520,
-    description: 'Reliquia rara de islas abisales. Perfora armaduras y lanza tridentes de energía.',
+    craftedByNpc: 'both',
+    description: 'Reliquia legendaria abisal. Perforador oceánico forjable solo por Armero o Forjador.',
+    craftCost: { frag_legendario: 4, tit: 10, cri: 4, hie: 12, oro: 18 },
   },
 
   // ESPADAS Y HACHAS DE COMBATE
@@ -62,7 +64,7 @@ export const WEAPONS: WeaponDef[] = [
     cooldown: 0.25,
     staminaCost: 5,
     description: 'Espada pirata equilibrada ideal para duelos contra bandidos.',
-    craftCost: { cht: 10, oro: 6, tit: 2 },
+    craftCost: { cht: 14, hie: 8, oro: 8, tit: 3 },
   },
   {
     id: 'katana_titanio',
@@ -73,8 +75,9 @@ export const WEAPONS: WeaponDef[] = [
     range: 82,
     cooldown: 0.21,
     staminaCost: 5,
-    description: 'Hoja ultrarrápida forjada con titanio de islas inexploradas.',
-    craftCost: { tit: 8, cht: 12, oro: 8 },
+    craftedByNpc: 'both',
+    description: 'Hoja ultrarrápida forjada con fragmentos épicos y titanio por un Armero o Forjador.',
+    craftCost: { frag_epico: 4, tit: 12, hie: 10, cht: 18, oro: 12 },
   },
   {
     id: 'espada_solar',
@@ -85,7 +88,38 @@ export const WEAPONS: WeaponDef[] = [
     range: 92,
     cooldown: 0.22,
     staminaCost: 6,
-    description: 'Arma legendaria de cofres antiguos que barre oleadas enteras.',
+    craftedByNpc: 'both',
+    description: 'Arma legendaria de plasma que barre oleadas enteras; requiere Armero o Forjador.',
+    craftCost: { frag_legendario: 4, tit: 14, cri: 5, tec: 5, oro: 22 },
+  },
+  {
+    id: 'espada_celestial',
+    name: 'Espada Celestial del Alba',
+    category: 'espada',
+    rarity: 'divino',
+    damage: 118,
+    range: 110,
+    cooldown: 0.19,
+    staminaCost: 6,
+    isCelestial: true,
+    craftedByNpc: 'forjador',
+    description: 'Hoja Divina forjada con Fragmentos Divinos y Celestiales solo por un Maestro Forjador.',
+    craftCost: { frag_divino: 5, cel_frag: 9, tit: 14, cri: 8, tec: 6, oro: 28 },
+  },
+  {
+    id: 'guja_divina',
+    name: 'Guja Solar Divina',
+    category: 'lanza',
+    rarity: 'divino',
+    damage: 132,
+    range: 126,
+    cooldown: 0.22,
+    staminaCost: 7,
+    projSpeed: 640,
+    isCelestial: true,
+    craftedByNpc: 'both',
+    description: 'Lanza sagrada de los antiguos mares; emite ráfagas solares penetrantes.',
+    craftCost: { frag_divino: 5, cel_frag: 8, tit: 16, cri: 7, tec: 6, oro: 30 },
   },
 
   // ARCOS
@@ -100,7 +134,7 @@ export const WEAPONS: WeaponDef[] = [
     staminaCost: 5,
     projSpeed: 460,
     description: 'Dispara flechas ligeras a distancia sin arriesgar tu pellejo.',
-    craftCost: { mad: 8, cht: 3 },
+    craftCost: { mad: 10, cht: 4 },
   },
   {
     id: 'ballesta_repeticion',
@@ -114,8 +148,26 @@ export const WEAPONS: WeaponDef[] = [
     pellets: 2,
     spread: 0.12,
     projSpeed: 540,
-    description: 'Dispara dos virotes simultáneos con alta penetración.',
-    craftCost: { mad: 12, cht: 12, tit: 4 },
+    craftedByNpc: 'both',
+    description: 'Dispara dos virotes simultáneos con alta penetración (Forja Armero/Forjador).',
+    craftCost: { frag_epico: 4, mad: 18, cht: 18, hie: 10, tit: 6, tec: 2 },
+  },
+  {
+    id: 'arco_astral',
+    name: 'Arco Astral Celestial',
+    category: 'arco',
+    rarity: 'divino',
+    damage: 68,
+    range: 540,
+    cooldown: 0.23,
+    staminaCost: 7,
+    pellets: 3,
+    spread: 0.14,
+    projSpeed: 700,
+    isCelestial: true,
+    craftedByNpc: 'forjador',
+    description: 'Arco Divino forjado con Fragmentos Divinos y Celestiales; desata ráfagas triples.',
+    craftCost: { frag_divino: 5, cel_frag: 10, cri: 8, tit: 12, tec: 6, oro: 28 },
   },
 
   // ARMAS DE FUEGO
@@ -130,7 +182,7 @@ export const WEAPONS: WeaponDef[] = [
     staminaCost: 6,
     projSpeed: 560,
     description: 'Arma clásica de saqueadores. Golpe seco y rápido.',
-    craftCost: { cht: 12, oro: 5 },
+    craftCost: { cht: 16, hie: 6, oro: 8 },
   },
   {
     id: 'escopeta_chatarra',
@@ -144,8 +196,9 @@ export const WEAPONS: WeaponDef[] = [
     pellets: 5,
     spread: 0.42,
     projSpeed: 520,
-    description: 'Desata 5 perdigones en abanico. Devastadora de cerca.',
-    craftCost: { cht: 18, tit: 5, oro: 6 },
+    craftedByNpc: 'armero',
+    description: 'Desata 5 perdigones en abanico. Requiere Armero/Forjador para ensamblar.',
+    craftCost: { frag_epico: 4, cht: 26, hie: 12, tit: 8, tec: 3, oro: 12 },
   },
   {
     id: 'canon_tesla',
@@ -157,11 +210,80 @@ export const WEAPONS: WeaponDef[] = [
     cooldown: 0.34,
     staminaCost: 8,
     projSpeed: 640,
-    description: 'Arma experimental que dispara descargas de cristal abisal y tecnología antigua.',
-    craftCost: { tec: 4, hie: 6, cri: 2 },
+    craftedByNpc: 'both',
+    description: 'Arma experimental que dispara descargas de cristal abisal (Forja Armero/Forjador).',
+    craftCost: { frag_legendario: 5, tec: 10, hie: 14, tit: 8, cri: 5, oro: 18 },
+  },
+  {
+    id: 'canon_divino',
+    name: 'Cañón Astral Divino',
+    category: 'fuego',
+    rarity: 'divino',
+    damage: 94,
+    range: 560,
+    cooldown: 0.3,
+    staminaCost: 9,
+    pellets: 2,
+    spread: 0.08,
+    projSpeed: 740,
+    isCelestial: true,
+    craftedByNpc: 'both',
+    description: 'Cañón portátil de rango Divino forjado por Armero o Forjador con núcleos estelares.',
+    craftCost: { frag_divino: 6, cel_frag: 8, tec: 10, tit: 16, cri: 9, oro: 34 },
   },
 
-  // BOMBAS
+  // MAGIA (Se desbloquea a mitad de la trama en el Capítulo II)
+  {
+    id: 'baculo_marea',
+    name: 'Báculo de la Marea Arcana',
+    category: 'magia',
+    rarity: 'epico',
+    damage: 44,
+    range: 420,
+    cooldown: 0.32,
+    staminaCost: 6,
+    projSpeed: 520,
+    isMagic: true,
+    craftedByNpc: 'both',
+    description: 'Magia antigua despertada a mitad de la trama (Forja Armero/Forjador).',
+    craftCost: { frag_epico: 4, cri: 5, agu: 10, tec: 3, oro: 14 },
+  },
+  {
+    id: 'orbe_tormenta',
+    name: 'Orbe de Tormenta Salada',
+    category: 'magia',
+    rarity: 'legendario',
+    damage: 58,
+    range: 450,
+    cooldown: 0.38,
+    staminaCost: 8,
+    pellets: 3,
+    spread: 0.24,
+    projSpeed: 560,
+    isMagic: true,
+    craftedByNpc: 'both',
+    description: 'Hechizo triple de rayos oceánicos capaz de barrer hordas zombis y hackers.',
+    craftCost: { frag_legendario: 5, cri: 8, tec: 7, tit: 6, oro: 22 },
+  },
+  {
+    id: 'cetro_estelar',
+    name: 'Cetro Celestial del Abismo',
+    category: 'magia',
+    rarity: 'divino',
+    damage: 108,
+    range: 540,
+    cooldown: 0.27,
+    staminaCost: 9,
+    aoeRadius: 118,
+    projSpeed: 640,
+    isMagic: true,
+    isCelestial: true,
+    craftedByNpc: 'forjador',
+    description: 'Reliquia Divina de Fragmentos Celestiales y Magia Antigua con detonación arcana.',
+    craftCost: { frag_divino: 6, cel_frag: 12, cri: 9, tec: 8, tit: 10, oro: 34 },
+  },
+
+  // BOMBAS Y ARMAS NUCLEARES (Uso estricto desde Buque de Guerra Nuclear Blindado)
   {
     id: 'bomba_polvora',
     name: 'Bomba de Pólvora',
@@ -174,7 +296,7 @@ export const WEAPONS: WeaponDef[] = [
     aoeRadius: 92,
     projSpeed: 290,
     description: 'Explosivo de área ideal contra flotas de bandidos y cangrejos.',
-    craftCost: { mad: 6, cht: 8, oro: 2 },
+    craftCost: { mad: 10, cht: 14, car: 6, oro: 4 },
   },
   {
     id: 'bomba_abisal',
@@ -187,38 +309,43 @@ export const WEAPONS: WeaponDef[] = [
     staminaCost: 14,
     aoeRadius: 135,
     projSpeed: 310,
-    description: 'Detonación masiva con energía de cristal abisal.',
-    craftCost: { cht: 10, tit: 3, cri: 2 },
+    craftedByNpc: 'both',
+    description: 'Detonación masiva con energía de cristal abisal (Forja Armero/Forjador).',
+    craftCost: { frag_legendario: 4, cht: 18, hie: 10, tit: 7, cri: 5, tec: 4 },
   },
   {
     id: 'torpedo_termonuclear',
     name: 'Torpedo Termonuclear',
     category: 'fuego',
     rarity: 'legendario',
-    damage: 540,
-    range: 560,
+    damage: 760,
+    range: 620,
     cooldown: 1.05,
     staminaCost: 14,
-    aoeRadius: 170,
-    projSpeed: 540,
+    aoeRadius: 195,
+    projSpeed: 560,
     isNuclear: true,
-    description: 'Arma nuclear de Buque/Búnker de Guerra: única capaz de perforar y abatir Leviatanes.',
-    craftCost: { tit: 6, cri: 3, tec: 3, oro: 8 },
+    craftedByNpc: 'both',
+    description:
+      'Solo utilizable a bordo del Buque de Guerra Nuclear blindado. Forjado por Armero o Forjador.',
+    craftCost: { frag_legendario: 6, nuc_frag: 10, tit: 18, hie: 16, cri: 8, tec: 10, oro: 30 },
   },
   {
     id: 'misil_nuclear',
-    name: 'Ojiva Nuclear de Búnker',
+    name: 'Ojiva Termonuclear Naval',
     category: 'bomba',
-    rarity: 'legendario',
-    damage: 780,
-    range: 520,
-    cooldown: 1.35,
+    rarity: 'divino',
+    damage: 1250,
+    range: 600,
+    cooldown: 1.3,
     staminaCost: 18,
-    aoeRadius: 230,
-    projSpeed: 400,
+    aoeRadius: 280,
+    projSpeed: 430,
     isNuclear: true,
-    description: 'Ojiva táctica nuclear para Buque o Búnker de Guerra; devasta Leviatanes gigantes.',
-    craftCost: { tit: 8, cri: 4, tec: 4, oro: 12 },
+    craftedByNpc: 'both',
+    description:
+      'Armamento Divino exclusivo de Buque de Guerra Nuclear blindado. Devasta Leviatanes Ancianos.',
+    craftCost: { frag_divino: 6, nuc_frag: 15, tit: 24, hie: 22, cri: 12, tec: 14, oro: 45 },
   },
 
   // HERRAMIENTAS DE SUPERVIVENCIA
@@ -277,7 +404,61 @@ export const RARE_ISLAND_WEAPONS: string[] = [
   'espada_solar',
   'canon_tesla',
   'bomba_abisal',
+  'guja_divina',
+  'canon_divino',
 ];
+
+export function isNpcForgedRarity(rarity: Rarity): boolean {
+  return rarity === 'epico' || rarity === 'legendario' || rarity === 'divino';
+}
+
+export type FragmentDropSource =
+  | 'normal'
+  | 'elite'
+  | 'boss'
+  | 'leviathan_adult'
+  | 'leviathan_elder'
+  | 'chest'
+  | 'abyssal_chest';
+
+export function rollWeaponFragmentDrop(
+  sourceTier: FragmentDropSource,
+  distanceMult = 1
+): Array<{ key: 'frag_epico' | 'frag_legendario' | 'frag_divino'; amount: number }> {
+  const distBoost = Math.min(2.1, 1 + Math.max(0, distanceMult - 1) * 0.35);
+  const drops: Array<{ key: 'frag_epico' | 'frag_legendario' | 'frag_divino'; amount: number }> = [];
+
+  const table: Record<
+    FragmentDropSource,
+    { epico: number; legendario: number; divino: number; maxAmt: number }
+  > = {
+    normal: { epico: 0.08, legendario: 0.012, divino: 0, maxAmt: 1 },
+    elite: { epico: 0.24, legendario: 0.07, divino: 0.015, maxAmt: 2 },
+    boss: { epico: 0.45, legendario: 0.26, divino: 0.09, maxAmt: 2 },
+    leviathan_adult: { epico: 0.52, legendario: 0.34, divino: 0.14, maxAmt: 2 },
+    leviathan_elder: { epico: 0.65, legendario: 0.62, divino: 0.48, maxAmt: 3 },
+    chest: { epico: 0.22, legendario: 0.08, divino: 0.02, maxAmt: 2 },
+    abyssal_chest: { epico: 0.48, legendario: 0.3, divino: 0.14, maxAmt: 2 },
+  };
+
+  const odds = table[sourceTier];
+  if (Math.random() < Math.min(0.9, odds.epico * distBoost)) {
+    drops.push({ key: 'frag_epico', amount: 1 + (Math.random() < 0.32 ? 1 : 0) });
+  }
+  if (Math.random() < Math.min(0.85, odds.legendario * distBoost)) {
+    drops.push({
+      key: 'frag_legendario',
+      amount: 1 + (odds.maxAmt >= 2 && Math.random() < 0.35 ? 1 : 0),
+    });
+  }
+  if (odds.divino > 0 && Math.random() < Math.min(0.82, odds.divino * distBoost)) {
+    drops.push({
+      key: 'frag_divino',
+      amount: 1 + (odds.maxAmt >= 3 && Math.random() < 0.4 ? 1 : 0),
+    });
+  }
+  return drops;
+}
 
 export function getRarityColor(rarity: Rarity): string {
   switch (rarity) {
@@ -289,6 +470,8 @@ export function getRarityColor(rarity: Rarity): string {
       return '#c084fc';
     case 'legendario':
       return '#fbbf24';
+    case 'divino':
+      return '#38f8e2';
   }
 }
 
@@ -302,5 +485,7 @@ export function getRarityLabel(rarity: Rarity): string {
       return 'Épico';
     case 'legendario':
       return 'Legendario';
+    case 'divino':
+      return 'Divino';
   }
 }

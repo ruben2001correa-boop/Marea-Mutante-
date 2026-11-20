@@ -1,6 +1,6 @@
 import { getIslandCorralLimit, getRaftCorralLimit, getRaftHalfSize, getRelicTotals } from './constants';
 import { SURVIVORS_CATALOG } from './destinyTree';
-import { CROPS_CATALOG, TITLE_MAP } from './socialAndKingdoms';
+import { ROMANCE_CANDIDATES, CROPS_CATALOG, TITLE_MAP } from './socialAndKingdoms';
 import { WEAPON_MAP } from './weapons';
 import { getPirateRankInfo } from './worldGen';
 import type {
@@ -8,6 +8,7 @@ import type {
   AnimalEntity,
   CaptiveAnimal,
   ComicBubble,
+  CompoundWallSegment,
   EnemyEntity,
   ExplosionFx,
   FarmPlot,
@@ -16,6 +17,7 @@ import type {
   IntroCutsceneState,
   IslandEntity,
   IslandStructure,
+  IslandUnit,
   NpcAnimState,
   NpcAttitudeMood,
   NpcLiveVisualState,
@@ -27,6 +29,7 @@ import type {
   SlashFx,
   SplashFx,
   WeatherType,
+  WorldNpcEntity,
 } from './types';
 
 export type { NpcAnimState };
@@ -60,6 +63,9 @@ export interface TopDownRenderContext {
   introCutscene?: IntroCutsceneState;
   activeNpcChat?: ActiveNpcChatRenderInfo | null;
   npcLiveStates?: Record<string, NpcLiveVisualState>;
+  worldNpcs?: WorldNpcEntity[];
+  nearbyWorldNpcId?: string | null;
+  compoundWalls?: CompoundWallSegment[];
 }
 
 export function renderTopDownWorld(rc: TopDownRenderContext): void {
@@ -120,12 +126,40 @@ export function renderTopDownWorld(rc: TopDownRenderContext): void {
 
   const isDonorSkin = Boolean(rc.state.donorUnlocked && rc.state.donorSkinEnabled);
 
+  // Fortified compound perimeter walls & gates around villages and pirate camps
+  if (rc.compoundWalls) {
+    for (const wall of rc.compoundWalls) {
+      if (wall.destroyed) continue;
+      if (Math.abs(wall.x - camX) > width * 0.7 || Math.abs(wall.y - camY) > height * 0.7) continue;
+      drawCompoundWall(ctx, wall, rc.islands, rc.state, time);
+    }
+  }
+
   for (const st of rc.state.islandStructures) {
     if (Math.abs(st.x - camX) > width * 0.7 || Math.abs(st.y - camY) > height * 0.7) continue;
     drawIslandStructure(ctx, st, rc.enemies, time, isDonorSkin);
   }
 
-  // Active Story Mission Distress Buoy / Beacon (revealed after player meets Vega on deck)
+  // Starter Barge Dock ("Pontón Forja del Alba") around (360, -250)
+  if (Math.abs(360 - camX) <= width * 0.75 && Math.abs(-250 - camY) <= height * 0.75) {
+    drawStarterForgeBarge(ctx, 360, -250, time);
+  }
+
+  // Interactive World NPCs (Armeros, Forjadores, Mercaderes, Alquimistas, Cartógrafos, Chatarreros)
+  if (rc.worldNpcs) {
+    for (const wNpc of rc.worldNpcs) {
+      if (Math.abs(wNpc.x - camX) > width * 0.7 || Math.abs(wNpc.y - camY) > height * 0.7) continue;
+      drawWorldNpc(ctx, wNpc, time, rc.nearbyWorldNpcId === wNpc.id);
+    }
+  }
+
+  // AoE Island Units (villagers, guards, patrol ships)
+  for (const unit of rc.state.islandUnits || []) {
+    if (Math.abs(unit.x - camX) > width * 0.7 || Math.abs(unit.y - camY) > height * 0.7) continue;
+    drawIslandUnit(ctx, unit, time);
+  }
+
+  // Active Story Mission Event Scene & Distress Beacon
   const hideMissionMarkersForIntro =
     Boolean(rc.introCutscene?.active) && rc.introCutscene?.phase !== 'meet_vega';
   const activeMission = !hideMissionMarkersForIntro
@@ -134,32 +168,13 @@ export function renderTopDownWorld(rc: TopDownRenderContext): void {
       )
     : undefined;
   if (activeMission && typeof activeMission.markerX === 'number' && typeof activeMission.markerY === 'number') {
-    const mx = activeMission.markerX;
-    const my = activeMission.markerY;
-    const pulse = 26 + Math.sin(time * 4.5) * 6;
-    ctx.save();
-    ctx.translate(mx, my);
-    ctx.strokeStyle = 'rgba(34, 211, 238, 0.55)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(0, 0, pulse, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = '#0f172a';
-    ctx.strokeStyle = '#fbbf24';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(0, 0, 10, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = Math.sin(time * 6) > 0 ? '#22d3ee' : '#fbbf24';
-    ctx.beginPath();
-    ctx.arc(0, 0, 4.5, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.font = '700 9px "Outfit", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#67e8f9';
-    ctx.fillText('SEÑAL DE MISIÓN', 0, -16);
-    ctx.restore();
+    drawMissionEventScene(
+      ctx,
+      activeMission.markerX,
+      activeMission.markerY,
+      activeMission.eventKind || 'convoy_buoy',
+      time
+    );
   }
 
   // Saved Checkpoint Beacon on Island/World
@@ -175,6 +190,31 @@ export function renderTopDownWorld(rc: TopDownRenderContext): void {
     if (plot.location !== 'island') continue;
     if (Math.abs(plot.x - camX) > width * 0.65 || Math.abs(plot.y - camY) > height * 0.65) continue;
     drawFarmPlot(ctx, plot, plot.x, plot.y, time);
+  }
+
+  // Children out on map expeditions (traveling along route)
+  for (const child of rc.state.family.children) {
+    const m = child.activeMission;
+    if (!m) continue;
+    const progress = m.totalSec > 0 ? 1 - Math.max(0, m.remainingSec) / m.totalSec : 0.5;
+    const ex = rc.raft.x + (m.targetX - rc.raft.x) * progress;
+    const ey = rc.raft.y + (m.targetY - rc.raft.y) * progress;
+    if (Math.abs(ex - camX) <= width * 0.7 && Math.abs(ey - camY) <= height * 0.7) {
+      ctx.save();
+      ctx.translate(ex, ey);
+      ctx.fillStyle = '#0f172a';
+      ctx.strokeStyle = '#f472b6';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, 12, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.font = '700 9px "Outfit", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#fbcfe8';
+      ctx.fillText(`⛵ ${child.name} → ${m.targetName}`, 0, -16);
+      ctx.restore();
+    }
   }
 
   // 4. Farm & Wild Island Animals
@@ -539,6 +579,7 @@ function drawIsland(
     pirata: { shore: '#e7c687', wetSand: '#b8945a', inner: '#5c2626', innerHi: '#783232', ring: 'rgba(225, 29, 72, 0.26)' },
     pradera: { shore: '#f3d999', wetSand: '#d4b472', inner: '#2e8b4e', innerHi: '#4ade80', ring: 'rgba(74, 222, 128, 0.24)' },
     abisal: { shore: '#818cf8', wetSand: '#4f46e5', inner: '#1e1b4b', innerHi: '#312e81', ring: 'rgba(192, 132, 252, 0.30)' },
+    zombie: { shore: '#9ca3af', wetSand: '#6b7280', inner: '#1e3a2f', innerHi: '#3f6212', ring: 'rgba(132, 204, 22, 0.28)' },
   }[isl.biome];
 
   const isHQ = state.hqIslandId === isl.id;
@@ -547,7 +588,11 @@ function drawIsland(
   ctx.translate(isl.x, isl.y);
 
   // Outer shallow surf & animated foam ring
-  ctx.fillStyle = isHQ ? 'rgba(52, 211, 153, 0.28)' : palette.ring;
+  ctx.fillStyle = isl.isSafeZone
+    ? 'rgba(16, 185, 129, 0.24)'
+    : isHQ
+      ? 'rgba(52, 211, 153, 0.28)'
+      : palette.ring;
   ctx.beginPath();
   isl.points.forEach((pt, idx) => {
     const r = pt.r + 28 + Math.sin(time * 2.1 + idx) * 4;
@@ -1178,6 +1223,49 @@ function drawIsland(
       ctx.lineTo(-11, 4);
       ctx.closePath();
       ctx.fill();
+    } else if (node.kind === 'radio_tower') {
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(-11, 16);
+      ctx.lineTo(0, -24);
+      ctx.lineTo(11, 16);
+      ctx.moveTo(-7, 2);
+      ctx.lineTo(7, 2);
+      ctx.stroke();
+      const waveR = 10 + ((time * 18) % 20);
+      ctx.strokeStyle = `rgba(34, 211, 238, ${Math.max(0, 1 - waveR / 30)})`;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(0, -24, waveR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = '#22d3ee';
+      ctx.beginPath();
+      ctx.arc(0, -24, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = '700 9px "Outfit", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#67e8f9';
+      ctx.fillText('TORRE DE RADIO', 0, -34);
+    } else if (node.kind === 'zombie_grave') {
+      ctx.fillStyle = 'rgba(132, 204, 22, 0.22)';
+      ctx.beginPath();
+      ctx.arc(0, 0, 22, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#374151';
+      ctx.strokeStyle = '#84cc16';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.roundRect(-11, -14, 22, 24, [10, 10, 2, 2]);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#a3e635';
+      ctx.fillRect(-1.5, -9, 3, 12);
+      ctx.fillRect(-5, -5, 10, 2.5);
+      ctx.font = '700 9px "Outfit", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#bef264';
+      ctx.fillText('☣ FOSA ZOMBI', 0, -20);
     } else if (node.kind === 'chest') {
       const pulse = 0.75 + 0.25 * Math.sin(time * 5);
       ctx.fillStyle = `rgba(251, 191, 36, ${pulse * 0.38})`;
@@ -1201,24 +1289,38 @@ function drawIsland(
   ctx.font = '700 13px "Outfit", sans-serif';
   ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(5, 17, 28, 0.88)';
-  ctx.fillRect(isl.x - 118, isl.y - isl.radius - 28, 236, 20);
+  ctx.fillRect(isl.x - 134, isl.y - isl.radius - 28, 268, 20);
   const rankCol = isl.pirateRank ? getPirateRankInfo(isl.pirateRank).color : '#fda4af';
-  ctx.fillStyle = isHQ
-    ? '#6ee7b7'
-    : isl.pirateRank
-      ? rankCol
-      : isl.dangerous
-        ? '#fda4af'
-        : isl.discovered
-          ? '#fde68a'
-          : '#7dd3fc';
-  const tag = isHQ
-    ? `${isl.name} [CUARTEL]`
-    : isl.pirateRank
-      ? `${isl.name} [Piratas Rango ${isl.pirateRank}]`
-      : isl.dangerous
-        ? `${isl.name} (Peligro)`
-        : isl.name;
+  ctx.fillStyle = isl.isSafeZone
+    ? '#34d399'
+    : isHQ
+      ? '#6ee7b7'
+      : isl.biome === 'zombie'
+        ? '#a3e635'
+        : isl.pirateRank
+          ? rankCol
+          : isl.dangerous
+            ? '#fda4af'
+            : isl.discovered
+              ? '#fde68a'
+              : '#7dd3fc';
+  const moodTag =
+    isl.discovered && isl.villagerPersonality === 'hostile'
+      ? ' · ⚔ Hostil'
+      : isl.discovered && isl.villagerPersonality === 'foolish'
+        ? ' · 🤪 Mensos'
+        : '';
+  const tag = isl.isSafeZone
+    ? `${isl.name} [🛡 ZONA SEGURA]`
+    : isHQ
+      ? `${isl.name} [CUARTEL]`
+      : isl.biome === 'zombie'
+        ? `${isl.name} [☣ ZOMBIS]`
+        : isl.pirateRank
+          ? `${isl.name} [Piratas Rango ${isl.pirateRank}]`
+          : isl.dangerous
+            ? `${isl.name} (Peligro${moodTag})`
+            : `${isl.name}${moodTag}`;
   ctx.fillText(isl.discovered ? tag : `${tag} ?`, isl.x, isl.y - isl.radius - 13);
   ctx.restore();
 }
@@ -1749,9 +1851,229 @@ function drawIslandStructure(
     ctx.arc(0, 0, 14, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
+    ctx.save();
     ctx.rotate(ang);
     ctx.fillStyle = '#fbbf24';
     ctx.fillRect(0, -3, 18, 6);
+    ctx.restore();
+  } else if (st.kind === 'wall') {
+    ctx.fillStyle = '#334155';
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.roundRect(-22, -13, 44, 26, 4);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#475569';
+    ctx.fillRect(-18, -10, 10, 6);
+    ctx.fillRect(-4, -10, 8, 6);
+    ctx.fillRect(8, -10, 10, 6);
+    ctx.font = '700 8.5px "Outfit", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillText(`MURO Nv.${st.level}`, 0, -18);
+  } else if (st.kind === 'house') {
+    ctx.fillStyle = '#78350f';
+    ctx.strokeStyle = '#fde68a';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.roundRect(-16, -13, 32, 26, 4);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#b45309';
+    ctx.beginPath();
+    ctx.moveTo(-19, -11);
+    ctx.lineTo(0, -23);
+    ctx.lineTo(19, -11);
+    ctx.closePath();
+    ctx.fill();
+    ctx.font = '700 8.5px "Outfit", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fde68a';
+    ctx.fillText('CASA', 0, -26);
+  } else if (st.kind === 'mill') {
+    ctx.fillStyle = '#57534e';
+    ctx.strokeStyle = '#eab308';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.save();
+    ctx.rotate(time * 2.1);
+    ctx.strokeStyle = '#fef3c7';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-22, 0);
+    ctx.lineTo(22, 0);
+    ctx.moveTo(0, -22);
+    ctx.lineTo(0, 22);
+    ctx.stroke();
+    ctx.restore();
+    ctx.font = '700 8.5px "Outfit", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('MOLINO', 0, -24);
+  } else if (st.kind === 'barracks') {
+    ctx.fillStyle = '#450a0a';
+    ctx.strokeStyle = '#fb7185';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.roundRect(-22, -18, 44, 36, 5);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#e11d48';
+    ctx.fillRect(-14, -10, 28, 8);
+    ctx.font = '700 8.5px "Outfit", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fda4af';
+    ctx.fillText('CUARTEL MILITAR', 0, -23);
+  } else if (st.kind === 'blacksmith') {
+    ctx.fillStyle = '#27272a';
+    ctx.strokeStyle = '#f97316';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.roundRect(-19, -15, 38, 30, 5);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = `rgba(251, 146, 60, ${0.65 + Math.sin(time * 7) * 0.25})`;
+    ctx.beginPath();
+    ctx.arc(-6, 0, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(4, -5, 10, 10);
+    ctx.font = '700 8.5px "Outfit", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fdba74';
+    ctx.fillText('HERRERÍA', 0, -20);
+  } else if (st.kind === 'watchtower') {
+    ctx.save();
+    ctx.rotate(time * 1.1);
+    const beam = ctx.createLinearGradient(0, 0, 55, 0);
+    beam.addColorStop(0, 'rgba(56, 189, 248, 0.28)');
+    beam.addColorStop(1, 'rgba(56, 189, 248, 0)');
+    ctx.fillStyle = beam;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(55, -16);
+    ctx.lineTo(55, 16);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = '#1e293b';
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.font = '700 8.5px "Outfit", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#7dd3fc';
+    ctx.fillText('ATALAYA', 0, -22);
+  } else if (st.kind === 'market') {
+    ctx.fillStyle = '#92400e';
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(-22, -16, 44, 32, 5);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(-18, -12, 12, 10);
+    ctx.fillStyle = '#fef08a';
+    ctx.fillRect(-6, -12, 12, 10);
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(6, -12, 12, 10);
+    ctx.font = '700 8.5px "Outfit", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('MERCADO', 0, -21);
+  } else if (st.kind === 'patrol_dock') {
+    ctx.fillStyle = '#78350f';
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(-24, -14, 48, 28, 4);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#0ea5e9';
+    ctx.fillRect(-14, -6, 28, 12);
+    ctx.font = '700 8.5px "Outfit", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#7dd3fc';
+    ctx.fillText('ASTILLERO PATRULLA', 0, -20);
+  } else if (st.kind === 'radio_antenna') {
+    ctx.fillStyle = '#0f172a';
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, 14, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    const rPulse = 16 + ((time * 24) % 24);
+    ctx.strokeStyle = `rgba(34, 211, 238, ${Math.max(0, 1 - rPulse / 40)})`;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.arc(0, 0, rPulse, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = '#22d3ee';
+    ctx.beginPath();
+    ctx.arc(0, 0, 4.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.font = '700 8.5px "Outfit", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#67e8f9';
+    ctx.fillText('ANTENA RADIO', 0, -20);
+  } else if (st.kind === 'distillery') {
+    ctx.fillStyle = '#451a03';
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(-18, -14, 36, 28, 5);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#d97706';
+    ctx.beginPath();
+    ctx.arc(-6, 0, 6, 0, Math.PI * 2);
+    ctx.arc(7, 0, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.font = '700 8.5px "Outfit", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fcd34d';
+    ctx.fillText('DESTILERÍA', 0, -20);
+  } else if (st.kind === 'nuclear_lab') {
+    ctx.fillStyle = '#0f172a';
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.roundRect(-24, -19, 48, 38, 8);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = `rgba(34, 211, 238, ${0.5 + Math.sin(time * 5) * 0.25})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.font = '700 8.5px "Outfit", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#67e8f9';
+    ctx.fillText('⚛ LAB. NUCLEAR', 0, -24);
+  } else if (st.kind === 'nuclear_reactor') {
+    ctx.fillStyle = '#1e293b';
+    ctx.strokeStyle = '#a3e635';
+    ctx.lineWidth = 2.6;
+    ctx.beginPath();
+    ctx.arc(0, 0, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = `rgba(163, 230, 53, ${0.65 + Math.sin(time * 7) * 0.3})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, 11, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.font = '700 8.5px "Outfit", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#bef264';
+    ctx.fillText('☢ REACTOR NUCLEAR', 0, -28);
   } else {
     ctx.fillStyle = '#0f172a';
     ctx.strokeStyle = '#38bdf8';
@@ -1760,6 +2082,7 @@ function drawIslandStructure(
     ctx.roundRect(-14, -14, 28, 28, 4);
     ctx.fill();
     ctx.stroke();
+    ctx.save();
     ctx.rotate(time * 2.4);
     ctx.strokeStyle = '#94a3b8';
     ctx.lineWidth = 3;
@@ -1769,8 +2092,281 @@ function drawIslandStructure(
     ctx.moveTo(0, -9);
     ctx.lineTo(0, 9);
     ctx.stroke();
+    ctx.restore();
   }
 
+  // Structure HP Bar if damaged
+  if (typeof st.hp === 'number' && typeof st.maxHp === 'number' && st.maxHp > 0 && st.hp < st.maxHp) {
+    const pct = Math.max(0, Math.min(1, st.hp / st.maxHp));
+    ctx.fillStyle = 'rgba(4, 14, 23, 0.88)';
+    ctx.fillRect(-20, 22, 40, 5);
+    ctx.fillStyle = pct > 0.4 ? '#34d399' : '#fb7185';
+    ctx.fillRect(-19, 23, 38 * pct, 3);
+  }
+
+  ctx.restore();
+}
+
+function drawCompoundWall(
+  ctx: CanvasRenderingContext2D,
+  wall: CompoundWallSegment,
+  islands: IslandEntity[],
+  state: PersistentState,
+  time: number
+): void {
+  const isl = islands.find((i) => i.id === wall.islandId);
+  const k = wall.kind === 'village' && isl?.kingdomId
+    ? state.kingdoms.find((kg) => kg.id === isl.kingdomId)
+    : undefined;
+  const isPermissiveVillage =
+    wall.kind === 'village' &&
+    isl?.villagerPersonality !== 'hostile' &&
+    !k?.atWar &&
+    (k?.relation ?? 0) > -25;
+
+  ctx.save();
+  ctx.translate(wall.x, wall.y);
+  ctx.rotate(wall.angle);
+
+  if (wall.isGate && isPermissiveVillage) {
+    // Open welcoming wooden/stone gate archway
+    ctx.fillStyle = '#78350f';
+    ctx.strokeStyle = '#34d399';
+    ctx.lineWidth = 2;
+    ctx.fillRect(-wall.width / 2, -wall.height / 2, 8, wall.height);
+    ctx.fillRect(wall.width / 2 - 8, -wall.height / 2, 8, wall.height);
+    ctx.strokeStyle = 'rgba(52, 211, 153, 0.75)';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(-wall.width / 2 + 8, 0);
+    ctx.lineTo(wall.width / 2 - 8, 0);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.rotate(-wall.angle);
+    ctx.font = '700 9px "Outfit", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#6ee7b7';
+    ctx.fillText('PUERTA ABIERTA', 0, -14);
+  } else {
+    // Solid heavily fortified wall or locked gate
+    const isPirate = wall.kind === 'pirate_camp';
+    ctx.fillStyle = wall.isGate ? '#1f2937' : isPirate ? '#450a0a' : '#475569';
+    ctx.strokeStyle = wall.isGate
+      ? '#fbbf24'
+      : isPirate
+        ? '#f43f5e'
+        : isPermissiveVillage
+          ? '#94a3b8'
+          : '#fb7185';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.roundRect(-wall.width / 2, -wall.height / 2, wall.width, wall.height, 3);
+    ctx.fill();
+    ctx.stroke();
+
+    // Battlement studs / spikes
+    ctx.fillStyle = wall.isGate ? '#fbbf24' : '#cbd5e1';
+    for (let sx = -wall.width / 2 + 5; sx <= wall.width / 2 - 5; sx += 9) {
+      ctx.fillRect(sx - 1.5, -wall.height / 2 - 1.5, 3, 3);
+    }
+
+    if (wall.hp < wall.maxHp) {
+      ctx.rotate(-wall.angle);
+      const pct = Math.max(0, wall.hp / wall.maxHp);
+      ctx.fillStyle = 'rgba(4, 14, 23, 0.9)';
+      ctx.fillRect(-18, -15, 36, 5);
+      ctx.fillStyle = '#fb7185';
+      ctx.fillRect(-17, -14, 34 * pct, 3);
+    } else if (wall.isGate && !isPermissiveVillage) {
+      ctx.rotate(-wall.angle);
+      const pulse = 0.75 + 0.25 * Math.sin(time * 4);
+      ctx.font = '700 8.5px "Outfit", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `rgba(253, 164, 175, ${pulse})`;
+      ctx.fillText('⚔ MURO SELLADO (ROMPER)', 0, -14);
+    }
+  }
+  ctx.restore();
+}
+
+function drawStarterForgeBarge(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  time: number
+): void {
+  ctx.save();
+  ctx.translate(x, y + Math.sin(time * 2) * 1.5);
+  ctx.fillStyle = '#5c3317';
+  ctx.strokeStyle = '#f97316';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.roundRect(-42, -32, 84, 64, 8);
+  ctx.fill();
+  ctx.stroke();
+  ctx.fillStyle = '#7c2d12';
+  ctx.fillRect(-34, -24, 68, 48);
+  // Forge glow
+  ctx.fillStyle = `rgba(251, 146, 60, ${0.55 + Math.sin(time * 6) * 0.25})`;
+  ctx.beginPath();
+  ctx.arc(-16, -6, 10, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.font = '800 9.5px "Outfit", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#fed7aa';
+  ctx.fillText('⚒ PONTÓN FORJA DEL ALBA', 0, -39);
+  ctx.restore();
+}
+
+function drawWorldNpc(
+  ctx: CanvasRenderingContext2D,
+  npc: WorldNpcEntity,
+  time: number,
+  isNearby: boolean
+): void {
+  const badgeMap: Record<WorldNpcEntity['role'], string> = {
+    armero: '⚒ Armero',
+    forjador: '✧ Forjador',
+    mercader: '⚖ Mercader',
+    alquimista: '⚗ Alquimista',
+    cartografo: '🧭 Cartógrafo',
+    chatarrero: '⚙ Chatarrero',
+  };
+  ctx.save();
+  if (isNearby) {
+    const r = 24 + Math.sin(time * 6) * 3;
+    ctx.strokeStyle = 'rgba(250, 204, 21, 0.85)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(npc.x, npc.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  drawAnimatedNpc(ctx, {
+    x: npc.x,
+    y: npc.y,
+    angle: Math.PI * 0.5 + Math.sin(time * 0.8) * 0.25,
+    time,
+    animState: 'interacting',
+    interactMood: npc.role === 'armero' || npc.role === 'forjador' ? 'repair' : 'trade',
+    mood: 'equilibrio',
+    scale: 0.84,
+    coatColor: npc.color,
+    trimColor: '#fde68a',
+    hatStyle: npc.role === 'forjador' ? 'hood' : npc.role === 'cartografo' ? 'tricorn' : 'cap',
+    hatColor: npc.hatColor,
+    prop: npc.role === 'armero' || npc.role === 'forjador' ? 'wrench' : 'crate',
+    label: `${npc.name} (${badgeMap[npc.role]})`,
+    labelColor: isNearby ? '#fde047' : '#e0f2fe',
+    phaseOffset: npc.x * 0.01,
+  });
+  if (isNearby) {
+    ctx.font = '800 9.5px "Outfit", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fde047';
+    ctx.fillText('[G] / Tocar · Hablar y Forjar', npc.x, npc.y + 26);
+  }
+  ctx.restore();
+}
+
+function drawIslandUnit(
+  ctx: CanvasRenderingContext2D,
+  unit: IslandUnit,
+  time: number
+): void {
+  ctx.save();
+  ctx.translate(unit.x, unit.y);
+  const ang = Math.atan2(unit.vy, unit.vx) || 0;
+  if (unit.kind === 'patrol_ship') {
+    ctx.rotate(ang);
+    ctx.fillStyle = '#0c4a6e';
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(16, 0);
+    ctx.quadraticCurveTo(0, 10, -14, 7);
+    ctx.lineTo(-14, -7);
+    ctx.quadraticCurveTo(0, -10, 16, 0);
+    ctx.fill();
+    ctx.stroke();
+  } else {
+    const isGuard = unit.kind === 'guard';
+    drawAnimatedNpc(ctx, {
+      x: 0,
+      y: 0,
+      angle: ang,
+      time,
+      animState: Math.hypot(unit.vx, unit.vy) > 6 ? 'walking' : 'idle',
+      scale: 0.66,
+      coatColor: isGuard ? '#dc2626' : '#0284c7',
+      trimColor: isGuard ? '#fde047' : '#bae6fd',
+      hatStyle: isGuard ? 'cap' : 'straw',
+      hatColor: isGuard ? '#7f1d1d' : '#eab308',
+      prop: isGuard ? 'sword' : 'crate',
+      label: unit.role,
+      labelColor: isGuard ? '#fecaca' : '#bae6fd',
+    });
+  }
+  ctx.restore();
+}
+
+function drawMissionEventScene(
+  ctx: CanvasRenderingContext2D,
+  mx: number,
+  my: number,
+  eventKind: string,
+  time: number
+): void {
+  const pulse = 32 + Math.sin(time * 4.5) * 7;
+  const colorMap: Record<string, { ring: string; core: string; label: string }> = {
+    convoy_buoy: { ring: '#22d3ee', core: '#fbbf24', label: '📡 EVENTO: BOYA CONVOY' },
+    pirate_blockade: { ring: '#f43f5e', core: '#fb7185', label: '☠ EVENTO: BLOQUEO PIRATA' },
+    zombie_nest: { ring: '#84cc16', core: '#a3e635', label: '☣ EVENTO: NIDO ZOMBI' },
+    hacker_relay: { ring: '#22d3ee', core: '#a78bfa', label: '⚡ EVENTO: NODO HACKER' },
+    siege_village: { ring: '#f59e0b', core: '#fde047', label: '🛡 EVENTO: ASEDIO EN CURSO' },
+    leviathan_lair: { ring: '#0ea5e9', core: '#67e8f9', label: '🐉 EVENTO: GUARIDA ABISAL' },
+    wreck_field: { ring: '#fb923c', core: '#fed7aa', label: '⚓ EVENTO: PECIOS Y CARGA' },
+  };
+  const meta = colorMap[eventKind] || colorMap.convoy_buoy;
+
+  ctx.save();
+  ctx.translate(mx, my);
+  ctx.strokeStyle = meta.ring;
+  ctx.lineWidth = 2.2;
+  ctx.setLineDash([7, 5]);
+  ctx.beginPath();
+  ctx.arc(0, 0, pulse, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Event-specific floating debris / relay / buoys around marker
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + time * 0.45;
+    const rx = Math.cos(a) * 24;
+    const ry = Math.sin(a) * 24;
+    ctx.fillStyle = eventKind === 'zombie_nest' ? '#365314' : '#451a03';
+    ctx.strokeStyle = meta.core;
+    ctx.lineWidth = 1.4;
+    ctx.fillRect(rx - 5, ry - 4, 10, 8);
+    ctx.strokeRect(rx - 5, ry - 4, 10, 8);
+  }
+
+  ctx.fillStyle = '#0f172a';
+  ctx.strokeStyle = meta.core;
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.arc(0, 0, 12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = Math.sin(time * 6) > 0 ? meta.ring : meta.core;
+  ctx.beginPath();
+  ctx.arc(0, 0, 5.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.font = '800 10px "Outfit", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = meta.core;
+  ctx.fillText(meta.label, 0, -20);
   ctx.restore();
 }
 
@@ -2285,6 +2881,25 @@ function drawTopDownRaft(
     ctx.lineWidth = 1.2;
     ctx.fillRect(-halfSize - 10, -9, 10, 18);
     ctx.strokeRect(-halfSize - 10, -9, 10, 18);
+  }
+  if (state.shipRadioBuilt) {
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-halfSize * 0.45, -halfSize * 0.65);
+    ctx.lineTo(-halfSize * 0.45, -halfSize * 0.65 - 14);
+    ctx.stroke();
+    ctx.fillStyle = Math.sin(time * 8) > 0 ? '#22d3ee' : '#fde047';
+    ctx.beginPath();
+    ctx.arc(-halfSize * 0.45, -halfSize * 0.65 - 15, 2.8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (state.warshipNuclearShield) {
+    ctx.strokeStyle = `rgba(163, 230, 53, ${0.45 + Math.sin(time * 4) * 0.2})`;
+    ctx.lineWidth = 2.6;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, halfSize + 24, halfSize + 14, 0, 0, Math.PI * 2);
+    ctx.stroke();
   }
   ctx.restore();
 
@@ -3177,7 +3792,11 @@ function drawCrewOnRaft(
     let sy: number;
     let facing: number;
 
-    if (animState === 'swimming') {
+    if (live?.foragingIsland && Number.isFinite(live.x) && Number.isFinite(live.y)) {
+      sx = live.x;
+      sy = live.y;
+      facing = player ? Math.atan2(player.y - sy, player.x - sx) : Math.sin(time + idx);
+    } else if (animState === 'swimming') {
       const orbitA = time * 0.9 + idx * 1.6;
       sx = raft.x + Math.cos(orbitA) * (halfSize + 15);
       sy = raft.y + Math.sin(orbitA) * (halfSize + 15);
@@ -3248,14 +3867,42 @@ function drawCrewOnRaft(
         ? Boolean(activeNpcChat?.aiMode)
         : Boolean(isSpeakingAmbient && live?.viaAi),
       aiThinking: Boolean(isChattingNow && activeNpcChat?.aiLoading),
-      activityHint: isChattingNow ? live?.activityLabel : undefined,
+      activityHint: isChattingNow || live?.foragingIsland ? live?.activityLabel : undefined,
       label: member.id === 'vega' ? 'Vice-Cap. Vega' : def.name.split(' ')[0],
-      labelColor: '#f8fafc',
+      labelColor: live?.foragingIsland ? '#fde047' : '#f8fafc',
       phaseOffset: idx * 1.7,
     });
   });
 
+  // Visible Spouse sprite on deck or HQ
+  if (state.family.partnerId) {
+    const partnerDef = ROMANCE_CANDIDATES.find((c) => c.id === state.family.partnerId);
+    if (partnerDef) {
+      const spAngle = time * 0.45 + 1.1;
+      const sx = raft.x + Math.cos(spAngle) * (deckSpan * 0.75);
+      const sy = raft.y + Math.sin(spAngle) * (deckSpan * 0.55);
+      renderNpcAnimationState(ctx, {
+        x: sx,
+        y: sy,
+        angle: spAngle + Math.PI * 0.4,
+        time,
+        animState: 'interacting',
+        interactMood: 'cheer',
+        mood: 'felicidad',
+        scale: 0.72,
+        coatColor: partnerDef.color,
+        trimColor: '#fda4af',
+        hatStyle: 'bandana',
+        hatColor: '#f43f5e',
+        label: `♥ ${partnerDef.name.split(' ')[0]}`,
+        labelColor: '#fda4af',
+        phaseOffset: 5.2,
+      });
+    }
+  }
+
   state.family.children.forEach((child, cIdx) => {
+    if (child.activeMission) return;
     const childPhase = (time * 0.6 + cIdx * 1.9) % 5;
     const cx = raft.x - 14 + cIdx * 16 + Math.cos(time * 1.4 + cIdx) * 6;
     const cy = raft.y + Math.sin(time * 2.2 + cIdx) * 5;
@@ -3675,54 +4322,129 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: EnemyEntity, time: number):
       ctx.fillText(`Robando ${(3 - e.stealProgress).toFixed(1)}s`, 0, -e.radius - 20);
       ctx.restore();
     }
-  } else if (e.kind === 'leviathan') {
-    // Colossal Island-Sized Abyssal Leviathan (420px+ span)
+  } else if (e.isLeviathan) {
+    // 3-Stage Leviathans: baby (peaceful bioluminescent), adult (aggressive predator), elder (1080px+ primordial horror!)
+    const stage = e.leviathanStage || (e.radius >= 600 ? 'elder' : e.radius >= 280 ? 'adult' : 'baby');
     ctx.save();
     ctx.rotate(ang);
 
-    // Massive ocean wake & abyssal pressure ring
-    const wakeR = e.radius * 1.18 + Math.sin(time * 2.2) * 8;
-    const wakeGrad = ctx.createRadialGradient(0, 0, e.radius * 0.4, 0, 0, wakeR);
-    wakeGrad.addColorStop(0, 'rgba(8, 145, 178, 0.25)');
+    const wakeR = e.radius * 1.18 + Math.sin(time * 2.2) * (stage === 'elder' ? 18 : 8);
+    const wakeGrad = ctx.createRadialGradient(0, 0, e.radius * 0.35, 0, 0, wakeR);
+    wakeGrad.addColorStop(
+      0,
+      stage === 'elder'
+        ? 'rgba(153, 27, 27, 0.32)'
+        : stage === 'baby'
+          ? 'rgba(56, 189, 248, 0.22)'
+          : 'rgba(8, 145, 178, 0.26)'
+    );
     wakeGrad.addColorStop(1, 'rgba(6, 78, 59, 0)');
     ctx.fillStyle = wakeGrad;
     ctx.beginPath();
     ctx.arc(0, 0, wakeR, 0, Math.PI * 2);
     ctx.fill();
 
-    for (let seg = 6; seg >= 0; seg--) {
+    const segCount = stage === 'elder' ? 9 : stage === 'adult' ? 7 : 5;
+    for (let seg = segCount - 1; seg >= 0; seg--) {
       const sx = -seg * (e.radius * 0.42);
-      const sy = Math.sin(time * 2.4 + seg * 0.7) * 22;
-      const sr = e.radius * (1 - seg * 0.11);
-      ctx.fillStyle = e.hitT > 0 ? '#ffffff' : seg === 0 ? '#0c4a6e' : col;
-      ctx.strokeStyle = e.provoked ? '#f43f5e' : '#22d3ee';
-      ctx.lineWidth = 4;
+      const sy = Math.sin(time * 2.4 + seg * 0.7) * (stage === 'elder' ? 42 : 18);
+      const sr = e.radius * (1 - seg * (0.65 / segCount));
+      ctx.fillStyle =
+        e.hitT > 0
+          ? '#ffffff'
+          : seg === 0
+            ? stage === 'elder'
+              ? '#31102f'
+              : stage === 'baby'
+                ? '#0284c7'
+                : '#0c4a6e'
+            : col;
+      ctx.strokeStyle = e.provoked
+        ? '#f43f5e'
+        : stage === 'elder'
+          ? '#fb7185'
+          : stage === 'baby'
+            ? '#7dd3fc'
+            : '#22d3ee';
+      ctx.lineWidth = stage === 'elder' ? 7 : stage === 'baby' ? 2.5 : 4;
       ctx.beginPath();
       ctx.arc(sx, sy, sr, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
 
-      // Craggy island-like dorsal ridge plates
-      ctx.fillStyle = e.provoked ? '#9f1239' : '#155e75';
-      ctx.beginPath();
-      ctx.moveTo(sx + sr * 0.2, sy - sr * 0.32);
-      ctx.lineTo(sx - sr * 0.35, sy);
-      ctx.lineTo(sx + sr * 0.2, sy + sr * 0.32);
-      ctx.closePath();
-      ctx.fill();
+      // Elder primordial spines or adult dorsal plates
+      if (stage !== 'baby') {
+        ctx.fillStyle = e.provoked || stage === 'elder' ? '#9f1239' : '#155e75';
+        ctx.beginPath();
+        ctx.moveTo(sx + sr * 0.22, sy - sr * 0.36);
+        ctx.lineTo(sx - sr * 0.45, sy);
+        ctx.lineTo(sx + sr * 0.22, sy + sr * 0.36);
+        ctx.closePath();
+        ctx.fill();
+      }
     }
 
-    // Colossal Abyssal Eyes & Maw
-    ctx.fillStyle = e.provoked ? '#fb7185' : '#fef08a';
+    // Abyssal Eyes (Gentle round eyes for baby vs fierce glowing slit eyes for adult/elder)
+    const eyeR = stage === 'elder' ? 26 : stage === 'adult' ? 13 : 8;
+    ctx.fillStyle = stage === 'baby' && !e.provoked ? '#e0f2fe' : stage === 'elder' ? '#f43f5e' : '#fef08a';
     ctx.beginPath();
-    ctx.arc(e.radius * 0.56, -e.radius * 0.28, 13, 0, Math.PI * 2);
-    ctx.arc(e.radius * 0.56, e.radius * 0.28, 13, 0, Math.PI * 2);
+    ctx.arc(e.radius * 0.56, -e.radius * 0.28, eyeR, 0, Math.PI * 2);
+    ctx.arc(e.radius * 0.56, e.radius * 0.28, eyeR, 0, Math.PI * 2);
     ctx.fill();
+    ctx.fillStyle = '#090d16';
+    ctx.beginPath();
+    ctx.arc(e.radius * 0.59, -e.radius * 0.28, eyeR * 0.42, 0, Math.PI * 2);
+    ctx.arc(e.radius * 0.59, e.radius * 0.28, eyeR * 0.42, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  } else if (e.isZombie) {
+    // Mutated Plague Zombies (walker, brute, spitter)
+    ctx.save();
+    ctx.rotate(ang);
+    ctx.fillStyle = 'rgba(132, 204, 22, 0.22)';
+    ctx.beginPath();
+    ctx.arc(0, 0, e.radius + 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = col;
+    ctx.strokeStyle = '#3f6212';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, e.radius * 0.72, e.radius * 0.92, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // Outstretched arms
+    ctx.fillStyle = '#65a30d';
+    ctx.fillRect(4, -e.radius * 0.78, 12, 4);
+    ctx.fillRect(4, e.radius * 0.78 - 4, 12, 4);
+    ctx.fillStyle = '#bef264';
+    ctx.beginPath();
+    ctx.arc(e.radius * 0.35, -3.5, 2.4, 0, Math.PI * 2);
+    ctx.arc(e.radius * 0.35, 3.5, 2.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  } else if (e.isHacker) {
+    // Cyber Corsairs & Jammers with glowing antenna dish & circuit boat
+    ctx.save();
+    ctx.rotate(ang);
     ctx.fillStyle = '#0f172a';
+    ctx.strokeStyle = '#22d3ee';
+    ctx.lineWidth = 2.2;
     ctx.beginPath();
-    ctx.arc(e.radius * 0.59, -e.radius * 0.28, 5, 0, Math.PI * 2);
-    ctx.arc(e.radius * 0.59, e.radius * 0.28, 5, 0, Math.PI * 2);
+    ctx.moveTo(e.radius + 12, 0);
+    ctx.lineTo(-e.radius, e.radius * 0.75);
+    ctx.lineTo(-e.radius, -e.radius * 0.75);
+    ctx.closePath();
     ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.arc(0, 0, e.radius * 0.55, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = Math.sin(time * 16) > 0 ? '#a78bfa' : '#22d3ee';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(-4, 0, e.radius + 6, -0.7, 0.7);
+    ctx.stroke();
     ctx.restore();
   } else if (e.kind === 'shark') {
     // Realistic Top-Down Shark with Pectoral Fins, Gills & Tail Fin
@@ -3850,11 +4572,21 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: EnemyEntity, time: number):
     ctx.globalAlpha = 1;
   }
 
-  const barW = e.isLeviathan ? 150 : e.isBoss ? 56 : 34;
+  const barW = e.isLeviathan ? (e.leviathanStage === 'elder' ? 240 : 140) : e.isBoss ? 56 : 34;
   const barY = -e.radius - 14;
   ctx.fillStyle = 'rgba(4, 14, 23, 0.85)';
   ctx.fillRect(-barW / 2 - 1, barY - 1, barW + 2, 6);
-  ctx.fillStyle = e.isBandit ? '#fb7185' : e.isLeviathan ? '#22d3ee' : '#fbbf24';
+  ctx.fillStyle = e.isBandit
+    ? '#fb7185'
+    : e.isZombie
+      ? '#a3e635'
+      : e.isHacker
+        ? '#22d3ee'
+        : e.isLeviathan
+          ? e.leviathanStage === 'elder'
+            ? '#f43f5e'
+            : '#22d3ee'
+          : '#fbbf24';
   ctx.fillRect(-barW / 2, barY, barW * Math.max(0, e.hp / e.maxHp), 4);
 
   if (e.stolenBag) {
@@ -3863,22 +4595,27 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: EnemyEntity, time: number):
     ctx.fillStyle = '#fde047';
     ctx.fillText('¡LADRÓN!', 0, barY - 5);
   } else if (e.isLeviathan) {
-    ctx.font = '700 11px "Outfit", sans-serif';
+    const stage = e.leviathanStage || (e.radius >= 600 ? 'elder' : e.radius >= 280 ? 'adult' : 'baby');
+    ctx.font = stage === 'elder' ? '800 13px "Outfit", sans-serif' : '700 11px "Outfit", sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillStyle = e.provoked ? '#fb7185' : '#67e8f9';
+    ctx.fillStyle = e.provoked || stage === 'elder' ? '#fb7185' : stage === 'baby' ? '#7dd3fc' : '#67e8f9';
     ctx.fillText(
       e.swallowTargetIslandId
-        ? '⚠ LEVIATÁN HAMBRIENTO (DEVORANDO ISLA)'
-        : e.provoked
-          ? '☠ LEVIATÁN ENFURECIDO (SOLO NUCLEAR)'
-          : 'LEVIATÁN ABISAL · PACÍFICO (SOLO NUCLEAR)',
+        ? '⚠ LEVIATÁN DEVORANDO ISLA'
+        : stage === 'elder'
+          ? '☠ HORROR ANCIANO ABISAL (BUQUE NUCLEAR REQUERIDO)'
+          : stage === 'baby' && !e.provoked
+            ? 'LEVIATÁN CRÍA · PACÍFICO'
+            : e.provoked
+              ? '☠ LEVIATÁN ADULTO ENFURECIDO'
+              : 'LEVIATÁN ADULTO · HOSTIL',
       0,
       barY - 6
     );
-  } else if (e.isBoss) {
+  } else if (e.isBoss || e.isHacker) {
     ctx.font = '700 10px "Outfit", sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#fda4af';
+    ctx.fillStyle = e.isHacker ? '#67e8f9' : '#fda4af';
     ctx.fillText(e.name, 0, barY - 5);
   }
 

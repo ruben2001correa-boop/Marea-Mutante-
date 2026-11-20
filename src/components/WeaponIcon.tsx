@@ -7,11 +7,17 @@ interface WeaponIconProps {
 }
 
 export function WeaponIcon({ weaponId, category, className = 'w-5 h-5' }: WeaponIconProps) {
-  if (weaponId === 'tridente_abisal') {
+  if (weaponId === 'tridente_abisal' || weaponId === 'guja_divina') {
     return (
       <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden="true">
         <path d="M5 19L16 8" stroke="#fbbf24" strokeWidth="2.2" strokeLinecap="round" />
-        <path d="M13 5l6 6M15 4l3 1-1 3M19 9l1 3-3-1M12 7l-1 3 3-1" stroke="#38bdf8" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" />
+        <path
+          d="M13 5l6 6M15 4l3 1-1 3M19 9l1 3-3-1M12 7l-1 3 3-1"
+          stroke={weaponId === 'guja_divina' ? '#38f8e2' : '#38bdf8'}
+          strokeWidth="1.9"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     );
   }
@@ -56,7 +62,12 @@ export function WeaponIcon({ weaponId, category, className = 'w-5 h-5' }: Weapon
       return (
         <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden="true">
           <path d="M5 19l3-3m-1.5-1.5l3 3" stroke="#fbbf24" strokeWidth="2" strokeLinecap="round" />
-          <path d="M8.5 15.5L19 5l.5 3.5-8.5 8.5-2.5-1.5z" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1.1" />
+          <path
+            d="M8.5 15.5L19 5l.5 3.5-8.5 8.5-2.5-1.5z"
+            fill={weaponId === 'espada_celestial' ? '#38f8e2' : '#e2e8f0'}
+            stroke="#94a3b8"
+            strokeWidth="1.1"
+          />
         </svg>
       );
     case 'arco':
@@ -71,7 +82,15 @@ export function WeaponIcon({ weaponId, category, className = 'w-5 h-5' }: Weapon
       return (
         <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden="true">
           <path d="M4 11h14v3.5H9.5l-2 4.5H4.5l1.5-5H4V11z" fill="#94a3b8" stroke="#e2e8f0" strokeWidth="1.2" />
-          <rect x="17" y="10.5" width="3.5" height="3" rx="0.8" fill="#fbbf24" />
+          <rect x="17" y="10.5" width="3.5" height="3" rx="0.8" fill={weaponId === 'canon_divino' ? '#38f8e2' : '#fbbf24'} />
+        </svg>
+      );
+    case 'magia':
+      return (
+        <svg viewBox="0 0 24 24" className={className} fill="none" aria-hidden="true">
+          <path d="M5 19L14 10" stroke="#a855f7" strokeWidth="2.3" strokeLinecap="round" />
+          <circle cx="16.5" cy="7.5" r="3.4" fill="#38f8e2" stroke="#e9d5ff" strokeWidth="1.4" />
+          <path d="M16.5 2v2M16.5 11v2M11 7.5h2M20 7.5h2" stroke="#fde047" strokeWidth="1.4" strokeLinecap="round" />
         </svg>
       );
     case 'bomba':

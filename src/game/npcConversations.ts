@@ -4,9 +4,11 @@ import type {
   EmotionalMood,
   NpcAnimState,
   NpcAttitudeMood,
+  NpcHistoryEntry,
   NpcMoodState,
   PersistentState,
   WeatherType,
+  WorldNpcEntity,
 } from './types';
 
 export interface PausedDialogueLine {
@@ -222,6 +224,30 @@ const CHARACTER_SIGNATURE_LINES: Record<string, string[]> = {
     'A veces las campanas de alarma suenan de noche porque alguien vio brillar ojos gigantes bajo el agua.',
     'Por favor, si comercias con nosotros de forma justa, correremos la voz por todas las islas libres.',
     'Muchos niños aquí nunca han visto una ciudad sin muros ni vigías armados.',
+  ],
+  armero: [
+    'Un filo común se rompe contra el caparazón de un Leviatán; solo la forja con fragmentos resiste.',
+    'Trae acero, oro y fragmentos épicos o legendarios: mi yunque convertirá chatarra en gloria.',
+  ],
+  forjador: [
+    'El fuego astral consume a los impacientes. Con fragmentos divinos forjaremos armas eternas.',
+    'Si te sobran fragmentos épicos o legendarios, puedo transmutarlos en una esencia superior.',
+  ],
+  mercader: [
+    'Agua limpia, madera seca y comida caliente valen más que diez coronas en el océano mutante.',
+    'Compro lo que te sobre y te abastezco para cruzar hasta la Zona de Calamidad.',
+  ],
+  alquimista: [
+    'Un sorbo de elixir correcto limpia hasta la radiación abisal y calma la mente fracturada.',
+    'Guarda siempre cristal y agua pura: son la base de toda alquimia marítima.',
+  ],
+  cartografo: [
+    'Ningún capitán sobrevive sin saber dónde hay un yunque seguro o una guarida de bestias.',
+    'Tengo cartas actualizadas de forjadores, armeros y leviatanes por unas pocas monedas.',
+  ],
+  chatarrero: [
+    'Entre restos del Viejo Mundo aún laten circuitos intactos para radios y reactores.',
+    'El titanio y las piezas tecnológicas son el corazón del buque de guerra moderno.',
   ],
 };
 
@@ -1023,16 +1049,21 @@ export function startNpcConversation(
   npcId: string,
   state: PersistentState,
   overrideName?: string,
-  world?: WorldDialogueContext
+  world?: WorldDialogueContext & { worldNpc?: WorldNpcEntity | null }
 ): NpcConversationSession {
   const svDef = SURVIVORS_CATALOG.find((s) => s.id === npcId);
-  const npcName = overrideName || svDef?.name || 'Aldeano Costero';
-  const npcRole = svDef?.role || 'Habitante de Puerto Libre';
-  const npcColor = svDef?.color || '#38bdf8';
+  const wNpc = world?.worldNpc;
+  const npcName = overrideName || wNpc?.name || svDef?.name || 'Aldeano Costero';
+  const npcRole = wNpc?.title || svDef?.role || 'Habitante de Puerto Libre';
+  const npcColor = wNpc?.color || svDef?.color || '#38bdf8';
+  const moodKey = wNpc ? wNpc.role : npcId;
 
   const npcMood = getNpcMoodState(state, npcId);
   const topic = pick(TOPIC_TEMPLATES);
-  const greeting = buildContextualGreeting(npcId, npcName, npcMood.mood, state, world);
+  const greeting =
+    wNpc && Math.random() < 0.65
+      ? `[${MOOD_META[npcMood.mood]?.shortLabel || 'Sereno'}] «${wNpc.greeting}»`
+      : buildContextualGreeting(moodKey, npcName, npcMood.mood, state, world);
   const choices = topic.buildChoices(npcName, npcMood.mood, state);
 
   return {
@@ -1060,8 +1091,33 @@ export function startNpcConversation(
     aiLoading: false,
     aiError: null,
     npcAnimState: world?.npcAnimState || 'interacting',
-    npcActivityLabel: world?.npcActivityLabel || 'Interactuando en cubierta',
+    npcActivityLabel: world?.npcActivityLabel || 'Interactuando contigo',
   };
+}
+
+export function appendNpcChatHistory(
+  state: PersistentState,
+  npcId: string,
+  entries: NpcTranscriptEntry[]
+): void {
+  if (!state.npcChatHistory) state.npcChatHistory = {};
+  const existing = state.npcChatHistory[npcId] || [];
+  const stamped: NpcHistoryEntry[] = entries.map((e, idx) => ({
+    speaker: e.speaker,
+    name: e.name,
+    text: e.text,
+    moodBadge: e.moodBadge,
+    viaAi: e.viaAi,
+    ts: Date.now() + idx,
+  }));
+  // Avoid duplicating trailing identical messages from reopened/merged sessions
+  const combined = [...existing];
+  for (const item of stamped) {
+    const last = combined[combined.length - 1];
+    if (last && last.speaker === item.speaker && last.text === item.text) continue;
+    combined.push(item);
+  }
+  state.npcChatHistory[npcId] = combined.slice(-60);
 }
 
 export function chooseNpcDialogueOption(
@@ -1251,7 +1307,7 @@ function mapAiChoices(rawChoices: AiApiChoiceRaw[] | undefined, fallbackChoices:
       toneKind,
       toneLabel: String(c.toneLabel || toneKind).slice(0, 24),
       playerText: String(c.playerText || 'Continuemos hablando.'),
-      npcReply: String(c.npcReply || 'Entendido, Capitán.'),
+      npcReply: typeof c.npcReply === 'string' ? c.npcReply : '',
       npcNextMood,
       affinityDelta,
       mentalDelta,
@@ -1275,10 +1331,13 @@ export async function requestAiNpcTurn(
   playerMessage?: string
 ): Promise<{ ok: boolean; session: NpcConversationSession }> {
   const npcMood = getNpcMoodState(state, session.npcId);
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 7000);
   try {
     const res = await fetch('/api/ai/npc-chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
       body: JSON.stringify({
         npcId: session.npcId,
         npcName: session.npcName,
@@ -1291,7 +1350,7 @@ export async function requestAiNpcTurn(
         playerName: state.playerProfile.name,
         playerVitals: state.vitals,
         worldContext,
-        transcript: session.transcript.slice(-8),
+        transcript: session.transcript.slice(-6),
         turn: session.turn,
         playerMessage: playerMessage || '',
       }),
@@ -1383,14 +1442,21 @@ export async function requestAiNpcTurn(
       },
     };
   } catch (err) {
+    const isAbort = err instanceof Error && err.name === 'AbortError';
     return {
       ok: false,
       session: {
         ...session,
         aiLoading: false,
-        aiError: err instanceof Error ? err.message : 'No se pudo conectar con la IA de diálogos.',
+        aiError: isAbort
+          ? 'La IA tardó demasiado (>7s). Puedes continuar con el diálogo narrativo.'
+          : err instanceof Error
+            ? err.message
+            : 'No se pudo conectar con la IA de diálogos.',
       },
     };
+  } finally {
+    window.clearTimeout(timeoutId);
   }
 }
 
@@ -1399,10 +1465,13 @@ export async function requestAiAmbientBanter(
   state: PersistentState,
   worldContext: WorldDialogueContext
 ): Promise<Array<{ speaker: string; text: string }> | null> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 7000);
   try {
     const res = await fetch('/api/ai/ambient-banter', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
       body: JSON.stringify({
         crewNames,
         playerVitals: state.vitals,
@@ -1420,6 +1489,8 @@ export async function requestAiAmbientBanter(
     return null;
   } catch {
     return null;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
 }
 

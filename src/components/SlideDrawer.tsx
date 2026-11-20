@@ -1,7 +1,32 @@
 import { useState } from 'react';
-import { BookmarkCheck, Flag, MessageCircle, Wrench, X } from 'lucide-react';
+import {
+  Anvil,
+  Beer,
+  BookmarkCheck,
+  Compass,
+  Flag,
+  Hammer,
+  History,
+  MessageCircle,
+  Radiation,
+  Radio,
+  ShieldCheck,
+  Users,
+  Wrench,
+  X,
+} from 'lucide-react';
 import { ACHIEVEMENTS_CATALOG, SURVIVORS_CATALOG } from '../game/destinyTree';
-import { canAfford, getIslandCorralLimit, getRaftCorralLimit } from '../game/constants';
+import {
+  AOE_AGES_CATALOG,
+  AOE_BUILDINGS_CATALOG,
+  AOE_TECHS_CATALOG,
+  WARSHIP_PASSIVES_CATALOG,
+  canAfford,
+  getIslandCorralLimit,
+  getPopulationStats,
+  getRaftCorralLimit,
+  hasWarshipPassive,
+} from '../game/constants';
 import { MOOD_META } from '../game/needsAndPsychology';
 import { getNpcMoodState } from '../game/npcConversations';
 import { RELICS_CATALOG, getRelicRankColor } from '../game/relics';
@@ -15,16 +40,24 @@ import {
   TITLES_CATALOG,
   getShipClassName,
 } from '../game/socialAndKingdoms';
-import { WEAPONS, WEAPON_MAP, getRarityColor, getRarityLabel } from '../game/weapons';
+import {
+  WEAPONS,
+  WEAPON_MAP,
+  getRarityColor,
+  getRarityLabel,
+  isNpcForgedRarity,
+} from '../game/weapons';
 import { WeaponIcon } from './WeaponIcon';
 import type {
   CropKind,
   DrawerTab,
   IslandNode,
+  IslandStructure,
   PersistentState,
   ResourceBag,
   ResourceKey,
   SurvivorId,
+  WorldNpcEntity,
 } from '../game/types';
 
 export type TradeAction =
@@ -49,6 +82,7 @@ interface SlideDrawerProps {
   discoveredIslands: Array<{ id: string; name: string; biome: string }>;
   inShelter: boolean;
   nearbyVillage: IslandNode | null;
+  nearbyWorldNpc?: WorldNpcEntity | null;
   onClose: () => void;
   onTabChange: (tab: DrawerTab) => void;
   onEquipWeapon: (weaponId: string) => void;
@@ -58,9 +92,17 @@ interface SlideDrawerProps {
   onCookStew: () => void;
   onCraftConsumable: (kind: 'repelente' | 'hamaca') => void;
   onUpgradeRaft: (part: 'level' | 'engineLevel' | 'turretLevel' | 'distillerLevel' | 'solarLevel') => void;
-  onBuildOnIsland: (
-    kind: 'shelter' | 'turret' | 'extractor' | 'hq' | 'warehouse' | 'nuclear_bunker'
-  ) => void;
+  onUnlockWarshipPassive?: (passiveId: string) => void;
+  onUnlockNuclearShield?: () => void;
+  onCraftRadiationSuit?: () => void;
+  onBuildShipRadio?: () => void;
+  onBrewAlcohol?: () => void;
+  onDrinkAlcohol?: () => void;
+  onBuildOnIsland: (kind: IslandStructure['kind']) => void;
+  onUpgradeAge?: () => void;
+  onTrainIslandUnit?: (kind: 'villager' | 'guard' | 'patrol_ship') => void;
+  onResearchAoeTech?: (techId: string) => void;
+  onRepairStructures?: () => void;
   onFoundSettlement: (name: string, banner: string) => void;
   onUpgradeSettlement: (structureId: string) => void;
   onDesignateHqIsland: (islandId: string) => void;
@@ -78,6 +120,7 @@ interface SlideDrawerProps {
   onToggleDonorSkin: () => void;
   onRomanceAction: (candidateId: string, action: 'court' | 'marry') => void;
   onHaveChild: () => void;
+  onSendChildMission?: (childId: string, kind: 'explore' | 'trade' | 'raid') => void;
   onBuildFarmPlot: (location: 'raft' | 'island') => void;
   onPlantCrop: (plotId: string, crop: CropKind) => void;
   onWaterPlot: (plotId: string) => void;
@@ -86,6 +129,7 @@ interface SlideDrawerProps {
   onFeedCaptiveAnimal: (animalId: string) => void;
   onBreedCaptiveAnimal: (animalId: string) => void;
   onTalkToNpc: (npcId: string) => void;
+  onOpenWorldNpc?: (npc: WorldNpcEntity) => void;
 }
 
 function formatCost(cost?: Partial<ResourceBag>): string {
@@ -103,6 +147,12 @@ function formatCost(cost?: Partial<ResourceBag>): string {
     tit: 'Tit',
     cri: 'Cri',
     tec: 'Tec',
+    nuc_frag: 'F.Nuc',
+    cel_frag: 'F.Cel',
+    alc: 'Alc',
+    frag_epico: 'F.Épico',
+    frag_legendario: 'F.Leg',
+    frag_divino: 'F.Div',
   };
   return Object.entries(cost)
     .filter(([, v]) => (v || 0) > 0)
@@ -119,6 +169,7 @@ export function SlideDrawer({
   discoveredIslands,
   inShelter,
   nearbyVillage,
+  nearbyWorldNpc,
   onClose,
   onTabChange,
   onEquipWeapon,
@@ -128,7 +179,17 @@ export function SlideDrawer({
   onCookStew,
   onCraftConsumable,
   onUpgradeRaft,
+  onUnlockWarshipPassive,
+  onUnlockNuclearShield,
+  onCraftRadiationSuit,
+  onBuildShipRadio,
+  onBrewAlcohol,
+  onDrinkAlcohol,
   onBuildOnIsland,
+  onUpgradeAge,
+  onTrainIslandUnit,
+  onResearchAoeTech,
+  onRepairStructures,
   onFoundSettlement,
   onUpgradeSettlement,
   onDesignateHqIsland,
@@ -146,6 +207,7 @@ export function SlideDrawer({
   onToggleDonorSkin,
   onRomanceAction,
   onHaveChild,
+  onSendChildMission,
   onBuildFarmPlot,
   onPlantCrop,
   onWaterPlot,
@@ -154,6 +216,7 @@ export function SlideDrawer({
   onFeedCaptiveAnimal,
   onBreedCaptiveAnimal,
   onTalkToNpc,
+  onOpenWorldNpc,
 }: SlideDrawerProps) {
   const [clanNameInput, setClanNameInput] = useState(state.clan.name || 'Marea Libre');
   const [clanTagInput, setClanTagInput] = useState(state.clan.tag || 'MAREA');
@@ -162,9 +225,10 @@ export function SlideDrawer({
   const [settlementBannerInput, setSettlementBannerInput] = useState<
     'dorado' | 'esmeralda' | 'carmesi' | 'cian'
   >('dorado');
+  const [expandedHistoryNpcId, setExpandedHistoryNpcId] = useState<string | null>(null);
 
   const r = state.resources;
-  const shipClass = getShipClassName(state.raft.level);
+  const shipClass = getShipClassName(state.raft.level, state.warshipNuclearShield);
   const repairNeeded = state.raft.hp < state.raft.maxHp || state.raft.damagedMode;
   const canAffordRepair = r.mad >= 4 && (r.cht >= 2 || state.raft.damagedMode);
   const raftPlotsCount = state.farmPlots.filter((p) => p.location === 'raft').length;
@@ -186,13 +250,31 @@ export function SlideDrawer({
       )
     : [];
   const allSettlements = state.islandStructures.filter((st) => st.kind === 'settlement');
-  const hasNuclearBunker = state.islandStructures.some((st) => st.kind === 'nuclear_bunker');
-  const canUseNuclearWeapons = state.raft.level >= 7 || hasNuclearBunker;
+  const nuclearOperational =
+    state.raft.level >= 7 &&
+    state.nuclearLabBuilt &&
+    state.nuclearReactorBuilt &&
+    state.radiationSuitCrafted &&
+    state.warshipNuclearShield;
+
+  const popStats = getPopulationStats(state);
+  const currentAge = state.ageTier || 1;
+  const nextAgeDef = AOE_AGES_CATALOG.find((a) => a.tier === currentAge + 1);
+  const currentIslandStructures = currentIslandId
+    ? state.islandStructures.filter((s) => s.islandId === currentIslandId)
+    : [];
+  const damagedStructuresCount = currentIslandStructures.filter(
+    (s) => typeof s.hp === 'number' && typeof s.maxHp === 'number' && s.hp < s.maxHp
+  ).length;
+
+  const nearestForgeNpc =
+    state.discoveredWorldNpcs?.find((n) => n.role === 'forjador' || n.role === 'armero') || null;
 
   return (
     <aside
       aria-label="Menú lateral deslizable"
-      className={`fixed top-[46px] right-0 bottom-0 z-40 w-full max-w-[395px] bg-[#071522]/96 backdrop-blur-md border-l border-[#1f4260] shadow-2xl flex flex-col transition-transform duration-200 ease-out ${
+      onPointerDown={(e) => e.stopPropagation()}
+      className={`fixed top-[46px] right-0 bottom-0 z-40 w-full max-w-[405px] bg-[#071522]/96 backdrop-blur-md border-l border-[#1f4260] shadow-2xl flex flex-col transition-transform duration-200 ease-out safe-pb ${
         open ? 'translate-x-0' : 'translate-x-full'
       }`}
     >
@@ -204,11 +286,11 @@ export function SlideDrawer({
               ['arsenal', 'Arsenal'],
               ['raft', 'Navío'],
               ['farm', 'Granja'],
-              ['islands', 'Islas'],
+              ['islands', 'Islas AoE'],
               ['clans', 'Clanes'],
               ['kingdoms', 'Reinos'],
               ['trade', 'Comercio'],
-              ['crew', 'Equipo'],
+              ['crew', 'Equipo & NPCs'],
               ['family', 'Familia'],
               ['relics', 'Reliquias'],
               ['achievements', 'Logros'],
@@ -218,7 +300,7 @@ export function SlideDrawer({
               key={id}
               type="button"
               onClick={() => onTabChange(id)}
-              className={`px-2 py-1 rounded text-[11px] font-semibold whitespace-nowrap cursor-pointer transition-colors ${
+              className={`min-h-[36px] px-2.5 py-1 rounded-lg text-[11px] font-semibold whitespace-nowrap cursor-pointer transition-colors ${
                 tab === id
                   ? 'bg-amber-400 text-slate-950'
                   : 'text-slate-300 hover:bg-[#133049]'
@@ -231,7 +313,7 @@ export function SlideDrawer({
         <button
           type="button"
           onClick={onClose}
-          className="p-1.5 rounded text-slate-300 hover:text-white hover:bg-[#14324d] cursor-pointer shrink-0"
+          className="min-w-[40px] min-h-[40px] rounded-lg text-slate-300 hover:text-white hover:bg-[#14324d] flex items-center justify-center cursor-pointer shrink-0"
           aria-label="Recoger menú"
         >
           <X className="w-4 h-4" />
@@ -242,6 +324,54 @@ export function SlideDrawer({
       <div className="flex-1 overflow-y-auto deck-scroll p-3 space-y-2.5">
         {tab === 'arsenal' && (
           <>
+            {/* Fragment Wallet */}
+            <div className="rounded-xl p-2.5 bg-[#091c2d] border border-[#22476a] space-y-1.5">
+              <div className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                <Anvil className="w-4 h-4" />
+                <span>Fragmentos de Forja Especializada</span>
+              </div>
+              <div className="grid grid-cols-3 gap-1.5 text-[11px] font-mono-num">
+                <div className="rounded bg-[#06131f] px-2 py-1 border border-purple-400/35 text-purple-300">
+                  Épico: <b>{r.frag_epico}</b>
+                </div>
+                <div className="rounded bg-[#06131f] px-2 py-1 border border-amber-400/35 text-amber-300">
+                  Legend: <b>{r.frag_legendario}</b>
+                </div>
+                <div className="rounded bg-[#06131f] px-2 py-1 border border-cyan-400/35 text-cyan-300">
+                  Divino: <b>{r.frag_divino}</b>
+                </div>
+                <div className="rounded bg-[#06131f] px-2 py-1 border border-sky-400/30 text-sky-300">
+                  Celest: <b>{r.cel_frag}</b>
+                </div>
+                <div className="rounded bg-[#06131f] px-2 py-1 border border-lime-400/30 text-lime-300">
+                  Nuclear: <b>{r.nuc_frag}</b>
+                </div>
+                <div className="rounded bg-[#06131f] px-2 py-1 border border-amber-400/30 text-amber-200">
+                  Alcohol: <b>{r.alc}</b>
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-300 leading-snug">
+                Las armas <b className="text-purple-300">Épicas</b>, <b className="text-amber-300">Legendarias</b> y{' '}
+                <b className="text-cyan-300">Divinas</b> solo las forja un <b className="text-orange-300">Armero</b> o{' '}
+                <b className="text-cyan-300">Forjador</b> del mapa.
+                {nearestForgeNpc
+                  ? ` Más cercano: ${nearestForgeNpc.name} (${Math.round(nearestForgeNpc.x)}, ${Math.round(nearestForgeNpc.y)}).`
+                  : ' Visita el Pontón Forja del Alba en (360, -250).'}
+              </p>
+              {nearbyWorldNpc &&
+                (nearbyWorldNpc.role === 'armero' || nearbyWorldNpc.role === 'forjador') &&
+                onOpenWorldNpc && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenWorldNpc(nearbyWorldNpc)}
+                    className="w-full min-h-[42px] px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Hammer className="w-4 h-4" />
+                    <span>Abrir Forja de {nearbyWorldNpc.name}</span>
+                  </button>
+                )}
+            </div>
+
             <div className="grid grid-cols-1 gap-2">
               <div className="flex items-center justify-between bg-[#0d2235] border border-[#1f415e] rounded-lg px-3 py-2">
                 <div>
@@ -252,7 +382,7 @@ export function SlideDrawer({
                   type="button"
                   disabled={r.pez < 2 || r.agu < 2}
                   onClick={onCookStew}
-                  className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-xs font-bold text-white cursor-pointer"
+                  className="min-h-[40px] px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-xs font-bold text-white cursor-pointer"
                 >
                   Cocinar
                 </button>
@@ -267,7 +397,7 @@ export function SlideDrawer({
                   type="button"
                   disabled={r.mad < 3 || r.agu < 2 || r.oro < 1}
                   onClick={() => onCraftConsumable('repelente')}
-                  className="px-3 py-1.5 rounded bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-xs font-bold text-white cursor-pointer"
+                  className="min-h-[40px] px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 disabled:opacity-40 text-xs font-bold text-white cursor-pointer"
                 >
                   Crear
                 </button>
@@ -282,7 +412,7 @@ export function SlideDrawer({
                   type="button"
                   disabled={r.mad < 5 || r.cht < 2}
                   onClick={() => onCraftConsumable('hamaca')}
-                  className="px-3 py-1.5 rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-xs font-bold text-white cursor-pointer"
+                  className="min-h-[40px] px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-xs font-bold text-white cursor-pointer"
                 >
                   Crear
                 </button>
@@ -297,7 +427,9 @@ export function SlideDrawer({
               const owned = state.ownedWeapons.includes(w.id);
               const inHotbarIdx = state.hotbar.indexOf(w.id);
               const isEquipped = inHotbarIdx === state.equippedSlot;
-              const craftable = Boolean(w.craftCost && canAfford(r, w.craftCost));
+              const npcRequired = isNpcForgedRarity(w.rarity);
+              const magicLocked = Boolean(w.isMagic && !state.magicUnlocked);
+              const craftable = Boolean(!npcRequired && !magicLocked && w.craftCost && canAfford(r, w.craftCost));
               const rarityCol = getRarityColor(w.rarity);
 
               return (
@@ -325,15 +457,20 @@ export function SlideDrawer({
                         <div className="text-[10px] font-mono-num text-slate-400 mt-1">
                           {getRarityLabel(w.rarity)} · Daño {w.damage} · Alcance {w.range}
                         </div>
+                        {magicLocked && !owned && (
+                          <div className="text-[10px] font-bold text-purple-300 mt-1">
+                            ✨ Magia bloqueada: avanza hasta el Capítulo II de la historia.
+                          </div>
+                        )}
                         {w.isNuclear && (
                           <div
                             className={`text-[10px] font-bold mt-1 ${
-                              canUseNuclearWeapons ? 'text-lime-300' : 'text-amber-300'
+                              nuclearOperational ? 'text-lime-300' : 'text-amber-300'
                             }`}
                           >
-                            {canUseNuclearWeapons
-                              ? '☢ Arma Nuclear operativa (Buque de Guerra o Búnker activo)'
-                              : '☢ Requiere Buque de Guerra (Nv.7+) o Búnker Nuclear para disparar'}
+                            {nuclearOperational
+                              ? '☢ Operativa solo a bordo de tu Buque de Guerra Nuclear Blindado'
+                              : '☢ Requiere Buque Nv.7 + Lab + Reactor + Traje + Blindaje Nuclear'}
                           </div>
                         )}
                       </div>
@@ -343,7 +480,7 @@ export function SlideDrawer({
                       <button
                         type="button"
                         onClick={() => onEquipWeapon(w.id)}
-                        className={`px-2.5 py-1.5 rounded text-xs font-bold whitespace-nowrap cursor-pointer shrink-0 ${
+                        className={`min-h-[40px] px-2.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer shrink-0 ${
                           isEquipped
                             ? 'bg-amber-400 text-slate-950'
                             : 'bg-[#163a57] hover:bg-[#1d4a6e] text-sky-200'
@@ -351,12 +488,16 @@ export function SlideDrawer({
                       >
                         {isEquipped ? 'En uso' : inHotbarIdx >= 0 ? `Slot ${inHotbarIdx + 1}` : 'Equipar'}
                       </button>
+                    ) : npcRequired ? (
+                      <span className="px-2 py-1 rounded bg-[#071522] border border-amber-400/40 text-[10px] font-bold text-amber-300 text-right shrink-0">
+                        {w.craftedByNpc === 'forjador' ? 'Solo Forjador' : 'Armero / Forjador'}
+                      </span>
                     ) : w.craftCost ? (
                       <button
                         type="button"
                         disabled={!craftable}
                         onClick={() => onCraftWeapon(w.id)}
-                        className="px-2.5 py-1.5 rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-xs font-bold text-white whitespace-nowrap cursor-pointer shrink-0"
+                        className="min-h-[40px] px-2.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-xs font-bold text-white whitespace-nowrap cursor-pointer shrink-0"
                       >
                         Forjar
                       </button>
@@ -390,8 +531,8 @@ export function SlideDrawer({
               </div>
               <div className="text-[11px] text-slate-300">
                 {state.raft.level >= 7
-                  ? 'El Buque de Guerra es indestructible: si su casco cae a 0 queda averiado y solo necesita reparación.'
-                  : 'Monstruos grandes dañan el casco; los Leviatanes pueden hundir balsas sin blindaje máximo.'}
+                  ? '¡Buque de Guerra Nuclear activo! Desbloquea habilidades pasivas navales y blindaje atómico.'
+                  : 'Mejora la balsa hasta Nv.7 para convertirla en un Buque de Guerra Nuclear.'}
               </div>
               {repairNeeded && (
                 <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#1c3b56]">
@@ -402,9 +543,9 @@ export function SlideDrawer({
                     type="button"
                     disabled={!canAffordRepair}
                     onClick={onRepairRaft}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-bold cursor-pointer"
+                    className="min-h-[40px] inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-xs font-bold cursor-pointer"
                   >
-                    <Wrench className="w-3 h-3" />
+                    <Wrench className="w-3.5 h-3.5" />
                     <span>Reparar (4 Mad{!state.raft.damagedMode ? ' · 2 Cht' : ''})</span>
                   </button>
                 </div>
@@ -413,7 +554,7 @@ export function SlideDrawer({
 
             <UpgradeRow
               title={`Cubierta & Casco · Nv.${state.raft.level}`}
-              desc="Amplía la nave hacia Balandra, Goleta, Fragata y Buque de Guerra (Nv.7)."
+              desc="Amplía la nave hacia Balandra, Goleta, Fragata y Buque de Guerra Nuclear (Nv.7)."
               cost={{ mad: 12 + state.raft.level * 5, cht: 6 + state.raft.level * 3, hie: state.raft.level >= 3 ? state.raft.level : 0 }}
               bag={r}
               onClick={() => onUpgradeRaft('level')}
@@ -446,6 +587,168 @@ export function SlideDrawer({
               bag={r}
               onClick={() => onUpgradeRaft('solarLevel')}
             />
+
+            {/* Nuclear Warship Shield & Chain Checklist */}
+            <div className="rounded-xl p-3 bg-[#0c2330] border border-lime-400/45 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs font-extrabold text-lime-300">
+                  <Radiation className="w-4 h-4" />
+                  <span>Blindaje Nuclear del Buque</span>
+                </div>
+                <span className="text-[10px] font-bold text-lime-200">
+                  {state.warshipNuclearShield ? 'ACTIVO' : 'Requisito Atómico'}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-1 text-[10px]">
+                <span className={state.raft.level >= 7 ? 'text-emerald-300' : 'text-slate-400'}>
+                  {state.raft.level >= 7 ? '✓' : '○'} Buque Nv.7+
+                </span>
+                <span className={state.nuclearLabBuilt ? 'text-emerald-300' : 'text-slate-400'}>
+                  {state.nuclearLabBuilt ? '✓' : '○'} Lab Nuclear
+                </span>
+                <span className={state.nuclearReactorBuilt ? 'text-emerald-300' : 'text-slate-400'}>
+                  {state.nuclearReactorBuilt ? '✓' : '○'} Reactor Nuclear
+                </span>
+                <span className={state.radiationSuitCrafted ? 'text-emerald-300' : 'text-slate-400'}>
+                  {state.radiationSuitCrafted ? '✓' : '○'} Traje Antirradiación
+                </span>
+              </div>
+              {onUnlockNuclearShield && !state.warshipNuclearShield && (
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#183b4a]">
+                  <span className="text-[10px] font-mono-num text-amber-300">
+                    12 Tit · 8 Cri · 8 Tec · 5 F.Nuc
+                  </span>
+                  <button
+                    type="button"
+                    disabled={
+                      state.raft.level < 7 ||
+                      !state.nuclearLabBuilt ||
+                      !state.nuclearReactorBuilt ||
+                      !state.radiationSuitCrafted ||
+                      !canAfford(r, { tit: 12, cri: 8, tec: 8, nuc_frag: 5 })
+                    }
+                    onClick={onUnlockNuclearShield}
+                    className="min-h-[38px] px-3 py-1 rounded-lg bg-lime-500 hover:bg-lime-400 disabled:opacity-40 text-slate-950 text-xs font-extrabold cursor-pointer"
+                  >
+                    Instalar Blindaje Nuclear
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Warship Passives (Nv.7+) */}
+            <div className="pt-2 border-t border-[#193852] space-y-2">
+              <div className="text-xs font-bold text-amber-300">
+                Habilidades Pasivas del Buque de Guerra (Nv.7+)
+              </div>
+              {WARSHIP_PASSIVES_CATALOG.map((wp) => {
+                const active = hasWarshipPassive(state, wp.id);
+                const canBuy = state.raft.level >= wp.minRaftLevel && canAfford(r, wp.cost);
+                return (
+                  <div
+                    key={wp.id}
+                    className={`rounded-lg p-2.5 border flex items-center justify-between gap-2 ${
+                      active ? 'bg-[#112d28] border-emerald-400/60' : 'bg-[#0b1f31] border-[#1c3b56]'
+                    }`}
+                  >
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-amber-200">{wp.name}</div>
+                      <div className="text-[11px] text-slate-300">{wp.description}</div>
+                      <div className="text-[10px] font-semibold text-emerald-300 mt-0.5">{wp.bonusText}</div>
+                      {!active && (
+                        <div className="text-[10px] font-mono-num text-amber-300 mt-0.5">
+                          Nv.{wp.minRaftLevel}+ · {formatCost(wp.cost)}
+                        </div>
+                      )}
+                    </div>
+                    {active ? (
+                      <span className="text-[11px] font-bold text-emerald-300 shrink-0">Activa</span>
+                    ) : (
+                      onUnlockWarshipPassive && (
+                        <button
+                          type="button"
+                          disabled={!canBuy}
+                          onClick={() => onUnlockWarshipPassive(wp.id)}
+                          className="min-h-[38px] px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 text-xs font-bold cursor-pointer shrink-0"
+                        >
+                          Activar
+                        </button>
+                      )
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Ship Radio & Alcohol */}
+            <div className="grid grid-cols-1 gap-2 pt-2 border-t border-[#193852]">
+              {onBuildShipRadio && (
+                <div className="rounded-lg p-2.5 bg-[#0b1f31] border border-[#1c3b56] flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-cyan-300 flex items-center gap-1">
+                      <Radio className="w-3.5 h-3.5" />
+                      <span>Radio Transmisor Naval</span>
+                    </div>
+                    <div className="text-[11px] text-slate-300">
+                      Conecta con tus islas, detecta tormentas y neutraliza ataques de hackers.
+                    </div>
+                    {!state.shipRadioBuilt && (
+                      <div className="text-[10px] font-mono-num text-amber-300">
+                        4 Tec · 6 Hie · 6 Cht
+                      </div>
+                    )}
+                  </div>
+                  {state.shipRadioBuilt ? (
+                    <span className="text-[11px] font-bold text-cyan-300 shrink-0">En línea</span>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={!canAfford(r, { tec: 4, hie: 6, cht: 6 })}
+                      onClick={onBuildShipRadio}
+                      className="min-h-[38px] px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white text-xs font-bold cursor-pointer shrink-0"
+                    >
+                      Instalar
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {(onBrewAlcohol || onDrinkAlcohol) && (
+                <div className="rounded-lg p-2.5 bg-[#0b1f31] border border-[#1c3b56] flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-amber-300 flex items-center gap-1">
+                      <Beer className="w-3.5 h-3.5" />
+                      <span>Ron y Alcohol de Travesía ({r.alc})</span>
+                    </div>
+                    <div className="text-[11px] text-slate-300">
+                      Sube la moral (+25 Mente, +20 HP), pero beber en exceso provoca resaca.
+                    </div>
+                  </div>
+                  <div className="flex gap-1.5 shrink-0">
+                    {onBrewAlcohol && (
+                      <button
+                        type="button"
+                        disabled={r.veg < 3 || r.agu < 2}
+                        onClick={onBrewAlcohol}
+                        className="min-h-[38px] px-2 py-1 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white text-[11px] font-bold cursor-pointer"
+                      >
+                        Destilar
+                      </button>
+                    )}
+                    {onDrinkAlcohol && (
+                      <button
+                        type="button"
+                        disabled={r.alc <= 0}
+                        onClick={onDrinkAlcohol}
+                        className="min-h-[38px] px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-[11px] font-bold cursor-pointer"
+                      >
+                        Beber
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             <div className="pt-2 border-t border-[#193852] space-y-2">
               <div className="text-xs font-bold text-cyan-300">
@@ -480,7 +783,7 @@ export function SlideDrawer({
                         type="button"
                         disabled={!affordable}
                         onClick={() => onCraftTechPiece(tech.id)}
-                        className="px-2.5 py-1.5 rounded bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white text-xs font-bold cursor-pointer shrink-0"
+                        className="min-h-[38px] px-2.5 py-1.5 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-40 text-white text-xs font-bold cursor-pointer shrink-0"
                       >
                         Ensamblar
                       </button>
@@ -494,6 +797,55 @@ export function SlideDrawer({
 
         {tab === 'islands' && (
           <div className="space-y-2.5">
+            {/* AoE Imperial Age Progression */}
+            <div className="rounded-xl p-3 bg-gradient-to-br from-[#0e263c] to-[#081726] border border-amber-400/55 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs font-extrabold text-amber-300">
+                    {AOE_AGES_CATALOG[currentAge - 1]?.name || 'Edad I'}
+                  </div>
+                  <div className="text-[10px] text-slate-300">
+                    Población Imperial: <b className="text-sky-300">{popStats.pop}/{popStats.popCap}</b> ({popStats.villagers} ald. · {popStats.guards} guard. · {popStats.patrolShips} patr.)
+                  </div>
+                </div>
+                {onRepairStructures && damagedStructuresCount > 0 && (
+                  <button
+                    type="button"
+                    disabled={r.mad < 4}
+                    onClick={onRepairStructures}
+                    className="min-h-[36px] px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-[10px] font-bold cursor-pointer shrink-0"
+                  >
+                    Reparar ({damagedStructuresCount})
+                  </button>
+                )}
+              </div>
+
+              {nextAgeDef && onUpgradeAge ? (
+                <div className="pt-2 border-t border-[#1c3e5e] flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-bold text-emerald-300 truncate">
+                      Avanzar a {nextAgeDef.name}
+                    </div>
+                    <div className="text-[10px] font-mono-num text-amber-300">
+                      {formatCost(nextAgeDef.cost)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!canAfford(r, nextAgeDef.cost)}
+                    onClick={onUpgradeAge}
+                    className="min-h-[38px] px-3 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 text-xs font-extrabold cursor-pointer shrink-0"
+                  >
+                    Avanzar Edad
+                  </button>
+                </div>
+              ) : (
+                <div className="text-[10px] font-bold text-lime-300">
+                  ★ Era Nuclear Máxima alcanzada
+                </div>
+              )}
+            </div>
+
             <div className="rounded-lg p-3 bg-[#0b1f31] border border-[#1d3e5b] space-y-2">
               <div className="text-xs font-bold text-amber-300">
                 Base Isleña, Cuartel y Punto de Control
@@ -501,7 +853,7 @@ export function SlideDrawer({
               <div className="text-[11px] text-slate-300">
                 {currentIslandName
                   ? `Estás en: ${currentIslandName}.`
-                  : 'Desembarca en una isla (Desierto, Volcánica, Minera, Pradera, Chatarra...) para construir.'}
+                  : 'Desembarca en una isla para construir edificios AoE, murallas y complejos.'}
                 {state.hqIslandName && (
                   <span className="block text-emerald-300 font-semibold mt-1">
                     Cuartel establecido en: {state.hqIslandName}
@@ -522,21 +874,15 @@ export function SlideDrawer({
                   type="button"
                   disabled={!inShelter && !hasBaseOnCurrentIsland}
                   onClick={onSaveCheckpoint}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-[11px] font-bold cursor-pointer shrink-0"
-                  title="Disponible en tu Cuartel General, Refugio Seguro o al Dormir"
+                  className="min-h-[38px] inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-[11px] font-bold cursor-pointer shrink-0"
                 >
                   <BookmarkCheck className="w-3.5 h-3.5" />
                   <span>Guardar aquí</span>
                 </button>
               </div>
-              {!inShelter && !hasBaseOnCurrentIsland && (
-                <div className="text-[10px] text-slate-400">
-                  Construye un Cuartel o Refugio (o usa Dormir) para fijar tu punto de control.
-                </div>
-              )}
             </div>
 
-            {/* Player-Chosen Isla Cuartel Selector */}
+            {/* Designate HQ Island */}
             <div className="rounded-lg p-3 bg-[#0b1f31] border border-amber-400/50 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
@@ -547,15 +893,8 @@ export function SlideDrawer({
                   {state.hqIslandId ? 'Traslado libre' : 'Costo HQ: 16 Mad · 12 Cht · 4 Oro'}
                 </span>
               </div>
-              <div className="text-[11px] text-slate-300">
-                Tú decides en qué isla establecer o trasladar tu Cuartel General.
-              </div>
-              {discoveredIslands.length === 0 ? (
-                <div className="text-[11px] text-slate-400">
-                  Explora y pisa al menos una isla para seleccionarla como tu Isla Cuartel.
-                </div>
-              ) : (
-                <div className="space-y-1.5 max-h-36 overflow-y-auto deck-scroll pr-1">
+              {discoveredIslands.length > 0 && (
+                <div className="space-y-1.5 max-h-32 overflow-y-auto deck-scroll pr-1">
                   {discoveredIslands.map((isl) => {
                     const isCurrentHq = state.hqIslandId === isl.id;
                     const canEstablish = Boolean(state.hqIslandId) || canAfford(r, { mad: 16, cht: 12, oro: 4 });
@@ -563,24 +902,18 @@ export function SlideDrawer({
                       <div
                         key={isl.id}
                         className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded border ${
-                          isCurrentHq
-                            ? 'bg-[#102e2a] border-emerald-400/70'
-                            : 'bg-[#071522] border-[#18344d]'
+                          isCurrentHq ? 'bg-[#102e2a] border-emerald-400/70' : 'bg-[#071522] border-[#18344d]'
                         }`}
                       >
                         <div className="min-w-0">
                           <div className="text-[11px] font-bold text-slate-100 truncate">
                             {isl.name}
-                            {currentIslandId === isl.id && (
-                              <span className="ml-1 text-[10px] text-sky-300">(Aquí)</span>
-                            )}
+                            {currentIslandId === isl.id && <span className="ml-1 text-[10px] text-sky-300">(Aquí)</span>}
                           </div>
                           <div className="text-[10px] text-slate-400 capitalize">Bioma: {isl.biome}</div>
                         </div>
                         {isCurrentHq ? (
-                          <span className="text-[10px] font-bold text-emerald-300 shrink-0">
-                            Cuartel Actual
-                          </span>
+                          <span className="text-[10px] font-bold text-emerald-300 shrink-0">Cuartel Actual</span>
                         ) : (
                           <button
                             type="button"
@@ -588,7 +921,7 @@ export function SlideDrawer({
                             onClick={() => onDesignateHqIsland(isl.id)}
                             className="px-2 py-1 rounded bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 text-[10px] font-bold cursor-pointer shrink-0"
                           >
-                            {state.hqIslandId ? 'Mover Cuartel' : 'Hacer Cuartel'}
+                            {state.hqIslandId ? 'Mover HQ' : 'Hacer HQ'}
                           </button>
                         )}
                       </div>
@@ -598,25 +931,112 @@ export function SlideDrawer({
               )}
             </div>
 
-            <UpgradeRow
-              title="Cuartel General (HQ)"
-              desc="Establece o traslada tu base militar a la isla que pisas."
-              cost={state.hqIslandId ? {} : { mad: 16, cht: 12, oro: 4 }}
-              bag={r}
-              forceDisable={!currentIslandName || state.hqIslandId === currentIslandId}
-              buttonLabel={
-                state.hqIslandId === currentIslandId
-                  ? 'Activo aquí'
-                  : state.hqIslandId
-                    ? 'Mover aquí'
-                    : 'Establecer'
-              }
-              onClick={() =>
-                currentIslandId
-                  ? onDesignateHqIsland(currentIslandId)
-                  : onBuildOnIsland('hq')
-              }
-            />
+            {/* AoE Buildings */}
+            <div className="text-xs font-bold text-sky-300 pt-1">
+              Edificios de Aldea e Imperio (Age of Empires)
+            </div>
+            {AOE_BUILDINGS_CATALOG.map((b) => (
+              <UpgradeRow
+                key={b.kind}
+                title={`${b.name} (Edad ${AGE_ROMAN[b.minAge]})`}
+                desc={b.description}
+                cost={b.cost}
+                bag={r}
+                forceDisable={!currentIslandName || currentAge < b.minAge}
+                buttonLabel={currentAge < b.minAge ? `Edad ${AGE_ROMAN[b.minAge]}` : 'Construir'}
+                onClick={() => onBuildOnIsland(b.kind)}
+              />
+            ))}
+
+            {/* Train AoE Units */}
+            {onTrainIslandUnit && (
+              <div className="rounded-lg p-3 bg-[#0d2235] border border-cyan-500/40 space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold text-cyan-300">
+                  <span className="flex items-center gap-1.5">
+                    <Users className="w-4 h-4" /> Entrenar Unidades Isleñas
+                  </span>
+                  <span className="font-mono-num">{popStats.pop}/{popStats.popCap}</span>
+                </div>
+                <div className="grid grid-cols-1 gap-1.5">
+                  <TradeRow
+                    title="Aldeano Recolector (4 Mad · 3 Gui)"
+                    disabled={!currentIslandName || popStats.pop >= popStats.popCap || r.mad < 4 || r.gui < 3}
+                    onClick={() => onTrainIslandUnit('villager')}
+                  />
+                  <TradeRow
+                    title="Guardia Armado (6 Hie · 4 Oro · Cuartel)"
+                    disabled={
+                      !currentIslandName ||
+                      popStats.pop >= popStats.popCap ||
+                      !currentIslandStructures.some((s) => s.kind === 'barracks') ||
+                      r.hie < 6 ||
+                      r.oro < 4
+                    }
+                    onClick={() => onTrainIslandUnit('guard')}
+                  />
+                  <TradeRow
+                    title="Barco Patrulla (10 Mad · 6 Hie · 6 Oro · Muelle)"
+                    disabled={
+                      !currentIslandName ||
+                      popStats.pop >= popStats.popCap ||
+                      !currentIslandStructures.some((s) => s.kind === 'patrol_dock') ||
+                      r.mad < 10 ||
+                      r.hie < 6 ||
+                      r.oro < 6
+                    }
+                    onClick={() => onTrainIslandUnit('patrol_ship')}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Blacksmith Technologies */}
+            {onResearchAoeTech && (
+              <div className="space-y-1.5 pt-1">
+                <div className="text-xs font-bold text-amber-300">
+                  Investigaciones de Herrería Imperial
+                </div>
+                {AOE_TECHS_CATALOG.map((tech) => {
+                  const done = state.aoeUpgrades?.includes(tech.id);
+                  const canResearch = !done && currentAge >= tech.minAge && canAfford(r, tech.cost);
+                  return (
+                    <div
+                      key={tech.id}
+                      className={`rounded-lg p-2.5 border flex items-center justify-between gap-2 ${
+                        done ? 'bg-[#102d2a] border-emerald-400/50' : 'bg-[#0b1f31] border-[#1c3b56]'
+                      }`}
+                    >
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-slate-100">{tech.name}</div>
+                        <div className="text-[10px] text-emerald-300">{tech.bonusText}</div>
+                        {!done && (
+                          <div className="text-[10px] font-mono-num text-amber-300">
+                            Edad {AGE_ROMAN[tech.minAge]} · {formatCost(tech.cost)}
+                          </div>
+                        )}
+                      </div>
+                      {done ? (
+                        <span className="text-[10px] font-bold text-emerald-300 shrink-0">Completa</span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={!canResearch}
+                          onClick={() => onResearchAoeTech(tech.id)}
+                          className="min-h-[36px] px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white text-xs font-bold cursor-pointer shrink-0"
+                        >
+                          Investigar
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Classic & Strategic Island Structures + Nuclear Chain */}
+            <div className="text-xs font-bold text-lime-300 pt-1">
+              Defensas, Radio y Complejo Nuclear
+            </div>
             <UpgradeRow
               title="Almacén Seguro"
               desc="Protege tus recursos de los ladrones y suma +1 Oro cada día."
@@ -627,9 +1047,9 @@ export function SlideDrawer({
               onClick={() => onBuildOnIsland('warehouse')}
             />
             <UpgradeRow
-              title="Refugio Seguro"
-              desc="Zona protegida: los enemigos no atacan y regeneras HP."
-              cost={{ mad: 12, cht: 6 }}
+              title="Refugio Seguro (Con HP y Muro)"
+              desc="Los enemigos golpean la puerta sin atravesarla y curas dentro."
+              cost={{ mad: 12, cht: 6, hie: 4 }}
               bag={r}
               forceDisable={!currentIslandName}
               buttonLabel="Construir"
@@ -654,174 +1074,168 @@ export function SlideDrawer({
               onClick={() => onBuildOnIsland('extractor')}
             />
             <UpgradeRow
-              title="Búnker Nuclear de Guerra"
-              desc="Habilita el disparo de Armas Nucleares contra Leviatanes y blinda esta isla para que no puedan tragársela."
-              cost={{ mad: 20, hie: 10, tit: 6, tec: 3 }}
+              title="Antena de Radio Isleña"
+              desc="Conecta islas en red de radio y neutraliza interferencias de hackers."
+              cost={{ mad: 10, hie: 8, tec: 4 }}
               bag={r}
               forceDisable={!currentIslandName}
               buttonLabel="Construir"
-              onClick={() => onBuildOnIsland('nuclear_bunker')}
+              onClick={() => onBuildOnIsland('radio_antenna')}
             />
+            <UpgradeRow
+              title="Destilería Isleña"
+              desc="Produce Alcohol/Ron periódicamente para abastecer a tu tripulación."
+              cost={{ mad: 12, cht: 6, veg: 4 }}
+              bag={r}
+              forceDisable={!currentIslandName}
+              buttonLabel="Construir"
+              onClick={() => onBuildOnIsland('distillery')}
+            />
+            <UpgradeRow
+              title="Laboratorio Nuclear"
+              desc="Paso 1 de la cadena nuclear. Requiere Edad III+ o tecnología avanzada."
+              cost={{ hie: 16, tit: 8, tec: 6, cri: 3 }}
+              bag={r}
+              forceDisable={!currentIslandName || state.nuclearLabBuilt}
+              buttonLabel={state.nuclearLabBuilt ? 'Construido' : 'Construir'}
+              onClick={() => onBuildOnIsland('nuclear_lab')}
+            />
+            <UpgradeRow
+              title="Reactor Nuclear"
+              desc="Paso 2: enriquece combustible atómico (requiere Laboratorio Nuclear)."
+              cost={{ hie: 20, tit: 12, tec: 8, cri: 5, nuc_frag: 3 }}
+              bag={r}
+              forceDisable={!currentIslandName || !state.nuclearLabBuilt || state.nuclearReactorBuilt}
+              buttonLabel={state.nuclearReactorBuilt ? 'Operativo' : 'Construir'}
+              onClick={() => onBuildOnIsland('nuclear_reactor')}
+            />
+            {onCraftRadiationSuit && (
+              <div className="rounded-lg p-2.5 bg-[#0b1f31] border border-lime-400/40 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-lime-300">
+                    Traje Antirradiación (Paso 3)
+                  </div>
+                  <div className="text-[11px] text-slate-300">
+                    Bloquea 90% de la radiación del reactor y zonas tóxicas.
+                  </div>
+                  {!state.radiationSuitCrafted && (
+                    <div className="text-[10px] font-mono-num text-amber-300">
+                      6 Tit · 4 Cri · 4 Tec · 6 Cht
+                    </div>
+                  )}
+                </div>
+                {state.radiationSuitCrafted ? (
+                  <span className="text-[11px] font-bold text-lime-300 shrink-0">Equipado</span>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={!state.nuclearLabBuilt || !canAfford(r, { tit: 6, cri: 4, tec: 4, cht: 6 })}
+                    onClick={onCraftRadiationSuit}
+                    className="min-h-[38px] px-3 py-1 rounded-lg bg-lime-500 hover:bg-lime-400 disabled:opacity-40 text-slate-950 text-xs font-extrabold cursor-pointer shrink-0"
+                  >
+                    Fabricar
+                  </button>
+                )}
+              </div>
+            )}
 
-            {/* Custom Island Settlements: Pueblo -> Reino -> Imperio */}
+            {/* Custom Island Settlements */}
             <div className="rounded-lg p-3 bg-[#0d2235] border border-amber-400/55 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-xs font-extrabold text-amber-300">
-                  Construir Pueblos, Reinos e Imperios
+                  Fundar Pueblo → Reino → Imperio
                 </div>
                 <span className="text-[10px] font-mono-num text-emerald-300">
                   {allSettlements.length} fundado(s)
                 </span>
               </div>
-              <div className="text-[11px] text-slate-300">
-                Funda tus propios asentamientos en cualquier isla, dales nombre y estandarte, y
-                elévalos de <b className="text-slate-100">Pueblo</b> a{' '}
-                <b className="text-sky-300">Reino</b> y hasta{' '}
-                <b className="text-amber-300">Imperio</b>.
-              </div>
-
               <div className="space-y-1.5 bg-[#071522]/85 border border-[#1a3a57] rounded-lg p-2">
-                <div className="text-[10px] uppercase tracking-wide text-slate-400 font-bold">
-                  Nuevo Pueblo en {currentIslandName || 'cualquier isla'}
-                </div>
                 <input
                   type="text"
                   maxLength={24}
                   value={settlementNameInput}
                   onChange={(e) => setSettlementNameInput(e.target.value)}
                   placeholder="Nombre del pueblo o reino..."
-                  className="w-full px-2.5 py-1.5 rounded bg-[#0a1c2d] border border-[#285073] text-xs text-slate-100"
+                  className="w-full min-h-[38px] px-2.5 py-1 rounded bg-[#0a1c2d] border border-[#285073] text-xs text-slate-100"
                 />
-                <div className="flex items-center justify-between gap-1.5">
-                  <div className="flex items-center gap-1">
-                    {(
-                      [
-                        ['dorado', 'Dorado', 'bg-amber-400'],
-                        ['esmeralda', 'Esmeralda', 'bg-emerald-400'],
-                        ['carmesi', 'Carmesí', 'bg-rose-500'],
-                        ['cian', 'Cian', 'bg-cyan-400'],
-                      ] as const
-                    ).map(([id, label, dotClass]) => (
-                      <button
-                        key={id}
-                        type="button"
-                        onClick={() => setSettlementBannerInput(id)}
-                        className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer border ${
-                          settlementBannerInput === id
-                            ? 'bg-[#173957] border-amber-300 text-white'
-                            : 'bg-[#081726] border-[#1d3e5b] text-slate-300'
-                        }`}
-                      >
-                        <span className={`w-2 h-2 rounded-full ${dotClass}`} />
-                        <span>{label}</span>
-                      </button>
-                    ))}
-                  </div>
+                <div className="flex items-center gap-1 flex-wrap">
+                  {(
+                    [
+                      ['dorado', 'Dorado', 'bg-amber-400'],
+                      ['esmeralda', 'Esmeralda', 'bg-emerald-400'],
+                      ['carmesi', 'Carmesí', 'bg-rose-500'],
+                      ['cian', 'Cian', 'bg-cyan-400'],
+                    ] as const
+                  ).map(([id, label, dotClass]) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setSettlementBannerInput(id)}
+                      className={`px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1 cursor-pointer border ${
+                        settlementBannerInput === id
+                          ? 'bg-[#173957] border-amber-300 text-white'
+                          : 'bg-[#081726] border-[#1d3e5b] text-slate-300'
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${dotClass}`} />
+                      <span>{label}</span>
+                    </button>
+                  ))}
                 </div>
                 <div className="flex items-center justify-between gap-2 pt-1">
                   <span className="text-[10px] font-mono-num text-emerald-300">
-                    Costo: 14 Mad · 8 Cht · 3 Veg
+                    14 Mad · 8 Cht · 3 Veg
                   </span>
                   <button
                     type="button"
-                    disabled={
-                      !currentIslandName || !canAfford(r, { mad: 14, cht: 8, veg: 3 })
-                    }
+                    disabled={!currentIslandName || !canAfford(r, { mad: 14, cht: 8, veg: 3 })}
                     onClick={() =>
                       onFoundSettlement(
                         settlementNameInput.trim() || 'Puerto Ceniza',
                         settlementBannerInput
                       )
                     }
-                    className="px-3 py-1.5 rounded bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 text-[11px] font-extrabold cursor-pointer shrink-0"
+                    className="min-h-[38px] px-3 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 text-[11px] font-extrabold cursor-pointer shrink-0"
                   >
                     Fundar Pueblo
                   </button>
                 </div>
               </div>
 
-              {currentIslandSettlements.length > 0 && (
-                <div className="space-y-1.5">
-                  <div className="text-[10px] uppercase tracking-wide text-amber-300 font-bold">
-                    Asentamientos en {currentIslandName}
-                  </div>
-                  {currentIslandSettlements.map((st) => {
-                    const tierName =
-                      st.level >= 3 ? 'Imperio' : st.level === 2 ? 'Reino' : 'Pueblo';
-                    const nextCost =
-                      st.level === 1
-                        ? { mad: 18, hie: 6, oro: 6 }
-                        : st.level === 2
-                          ? { hie: 12, tit: 4, cri: 2, oro: 12 }
-                          : null;
-                    const incomeDesc =
-                      st.level >= 3
-                        ? '+6 Oro · +3 Hie · +1 Tit diarios · Defiende y blinda la isla'
-                        : st.level === 2
-                          ? '+3 Oro · +2 Mad · +2 Veg diarios · Defiende la isla'
-                          : '+2 Veg · +1 Oro diarios';
-                    return (
-                      <div
-                        key={st.id}
-                        className="rounded-lg p-2 bg-[#071522] border border-[#244a6d] space-y-1.5"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="text-xs font-bold text-slate-100 truncate">
-                              {tierName} {st.customName || 'Sin Nombre'}
-                            </div>
-                            <div className="text-[10px] text-emerald-300">{incomeDesc}</div>
-                          </div>
-                          <span className="px-1.5 py-0.5 rounded bg-[#122e47] border border-[#285680] text-[10px] font-bold text-amber-300 shrink-0">
-                            Nv.{st.level}
-                          </span>
-                        </div>
-                        {nextCost ? (
-                          <div className="flex items-center justify-between gap-2 pt-1 border-t border-[#15314a]">
-                            <span className="text-[10px] font-mono-num text-amber-200">
-                              {formatCost(nextCost)}
-                            </span>
-                            <button
-                              type="button"
-                              disabled={!canAfford(r, nextCost)}
-                              onClick={() => onUpgradeSettlement(st.id)}
-                              className="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-[10px] font-bold cursor-pointer shrink-0"
-                            >
-                              {st.level === 1 ? 'Elevar a Reino (Nv.2)' : 'Proclamar Imperio (Nv.3)'}
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="text-[10px] font-bold text-amber-300">
-                            ★ Imperio Soberano Máximo (Protege la isla de Leviatanes)
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {allSettlements.length > 0 && (
-                <div className="pt-1 border-t border-[#173652] space-y-1">
-                  <div className="text-[10px] uppercase tracking-wide text-slate-400 font-bold">
-                    Mapa de Tus Dominios ({allSettlements.length})
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {allSettlements.map((st) => {
-                      const tierName =
-                        st.level >= 3 ? 'Imperio' : st.level === 2 ? 'Reino' : 'Pueblo';
-                      return (
-                        <span
-                          key={st.id}
-                          className="px-2 py-0.5 rounded bg-[#071522] border border-[#1d3e5b] text-[10px] text-slate-200"
+              {currentIslandSettlements.map((st) => {
+                const tierName = st.level >= 3 ? 'Imperio' : st.level === 2 ? 'Reino' : 'Pueblo';
+                const nextCost =
+                  st.level === 1
+                    ? { mad: 18, hie: 6, oro: 6 }
+                    : st.level === 2
+                      ? { hie: 12, tit: 4, cri: 2, oro: 12 }
+                      : null;
+                return (
+                  <div key={st.id} className="rounded-lg p-2 bg-[#071522] border border-[#244a6d] space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-slate-100 truncate">
+                        {tierName} {st.customName || 'Sin Nombre'}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded bg-[#122e47] text-[10px] font-bold text-amber-300">
+                        Nv.{st.level}
+                      </span>
+                    </div>
+                    {nextCost && (
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-mono-num text-amber-200">{formatCost(nextCost)}</span>
+                        <button
+                          type="button"
+                          disabled={!canAfford(r, nextCost)}
+                          onClick={() => onUpgradeSettlement(st.id)}
+                          className="min-h-[36px] px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-[10px] font-bold cursor-pointer"
                         >
-                          <b className="text-amber-300">{tierName}</b> {st.customName || 'Sin Nombre'}
-                        </span>
-                      );
-                    })}
+                          {st.level === 1 ? 'Elevar a Reino' : 'Proclamar Imperio'}
+                        </button>
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
+                );
+              })}
             </div>
           </div>
         )}
@@ -831,9 +1245,6 @@ export function SlideDrawer({
             {!state.clan.founded ? (
               <div className="rounded-lg p-3 bg-[#0d2235] border border-amber-400/60 space-y-2">
                 <div className="text-xs font-bold text-amber-300">Fundar Tu Propio Clan Naval</div>
-                <div className="text-[11px] text-slate-300">
-                  Crea un clan pirata o mercante, desbloquea estandartes y compite contra clanes rivales.
-                </div>
                 <div className="grid grid-cols-3 gap-1.5">
                   <input
                     type="text"
@@ -841,7 +1252,7 @@ export function SlideDrawer({
                     value={clanNameInput}
                     onChange={(e) => setClanNameInput(e.target.value)}
                     placeholder="Nombre del clan"
-                    className="col-span-2 px-2 py-1 rounded bg-[#071522] border border-[#285073] text-xs text-slate-100"
+                    className="col-span-2 min-h-[40px] px-2.5 py-1 rounded bg-[#071522] border border-[#285073] text-xs text-slate-100"
                   />
                   <input
                     type="text"
@@ -849,18 +1260,16 @@ export function SlideDrawer({
                     value={clanTagInput}
                     onChange={(e) => setClanTagInput(e.target.value.toUpperCase())}
                     placeholder="TAG"
-                    className="px-2 py-1 rounded bg-[#071522] border border-[#285073] text-xs text-amber-300 font-mono-num uppercase"
+                    className="min-h-[40px] px-2.5 py-1 rounded bg-[#071522] border border-[#285073] text-xs text-amber-300 font-mono-num uppercase"
                   />
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-mono-num text-emerald-300">
-                    Costo: 6 Mad · 4 Oro · 2 Hie
-                  </span>
+                  <span className="text-[10px] font-mono-num text-emerald-300">6 Mad · 4 Oro · 2 Hie</span>
                   <button
                     type="button"
                     disabled={r.mad < 6 || r.oro < 4 || r.hie < 2}
                     onClick={() => onFoundOrUpgradeClan(clanNameInput, clanTagInput)}
-                    className="px-3 py-1.5 rounded bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 text-xs font-bold cursor-pointer"
+                    className="min-h-[40px] px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 text-xs font-bold cursor-pointer"
                   >
                     Fundar Clan
                   </button>
@@ -874,21 +1283,20 @@ export function SlideDrawer({
                       [{state.clan.tag}] {state.clan.name}
                     </div>
                     <div className="text-[11px] text-slate-300">
-                      Rango Clan Nv.{state.clan.level} · Miembros: {state.clan.members + state.survivors.filter((s) => s.unlocked).length}
+                      Rango Nv.{state.clan.level} · Miembros: {state.clan.members + state.survivors.filter((s) => s.unlocked).length}
                     </div>
                   </div>
                   <button
                     type="button"
                     disabled={r.oro < 6 + state.clan.level * 3 || r.hie < 4}
                     onClick={() => onFoundOrUpgradeClan()}
-                    className="px-2.5 py-1 rounded bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 text-[11px] font-bold cursor-pointer"
+                    className="min-h-[38px] px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 text-[11px] font-bold cursor-pointer"
                   >
-                    Subir Nv. ({6 + state.clan.level * 3} Oro · 4 Hie)
+                    Subir Nv. ({6 + state.clan.level * 3} Oro)
                   </button>
                 </div>
 
                 <div className="pt-1.5 border-t border-[#1a3a57] space-y-1.5">
-                  <div className="text-[11px] font-bold text-sky-300">Ventajas del Clan</div>
                   {CLAN_PERKS_CATALOG.map((pk) => {
                     const owned = state.clan.perks.includes(pk.id);
                     const affordable = canAfford(r, pk.cost);
@@ -900,11 +1308,6 @@ export function SlideDrawer({
                         <div className="min-w-0">
                           <div className="text-[11px] font-bold text-slate-100">{pk.name}</div>
                           <div className="text-[10px] text-emerald-300">{pk.desc}</div>
-                          {!owned && (
-                            <div className="text-[10px] font-mono-num text-amber-300">
-                              {formatCost(pk.cost)}
-                            </div>
-                          )}
                         </div>
                         {owned ? (
                           <span className="text-[10px] font-bold text-emerald-300">Activo</span>
@@ -913,7 +1316,7 @@ export function SlideDrawer({
                             type="button"
                             disabled={!affordable}
                             onClick={() => onUnlockClanPerk(pk.id)}
-                            className="px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white text-[10px] font-bold cursor-pointer shrink-0"
+                            className="min-h-[36px] px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white text-[10px] font-bold cursor-pointer shrink-0"
                           >
                             Activar
                           </button>
@@ -925,7 +1328,6 @@ export function SlideDrawer({
               </div>
             )}
 
-            <div className="text-xs font-semibold text-slate-400">Clanes Rivales del Mar</div>
             {state.clan.rivals.map((rc) => {
               const status = rc.conquered
                 ? 'Sometido'
@@ -954,7 +1356,7 @@ export function SlideDrawer({
                         type="button"
                         disabled={r.oro < 3}
                         onClick={() => onClanAction(rc.id, 'gift')}
-                        className="px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-[11px] font-bold text-white cursor-pointer"
+                        className="min-h-[36px] px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-[11px] font-bold text-white cursor-pointer"
                       >
                         Tributo (3 Oro)
                       </button>
@@ -963,7 +1365,7 @@ export function SlideDrawer({
                           type="button"
                           disabled={r.oro < 7}
                           onClick={() => onClanAction(rc.id, 'peace')}
-                          className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-[11px] font-bold text-white cursor-pointer"
+                          className="min-h-[36px] px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-[11px] font-bold text-white cursor-pointer"
                         >
                           Tregua (7 Oro)
                         </button>
@@ -972,7 +1374,7 @@ export function SlideDrawer({
                           type="button"
                           disabled={!state.clan.founded}
                           onClick={() => onClanAction(rc.id, 'war')}
-                          className="px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-[11px] font-bold text-white cursor-pointer"
+                          className="min-h-[36px] px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-[11px] font-bold text-white cursor-pointer"
                         >
                           Guerra de Clanes
                         </button>
@@ -987,20 +1389,18 @@ export function SlideDrawer({
 
         {tab === 'farm' && (
           <div className="space-y-3">
-            {/* Consumable Crops & Green Stew */}
             <div className="rounded-lg p-2.5 bg-[#0d2235] border border-emerald-500/50 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-lime-300">
                   Despensa Verde ({r.veg} Cultivos)
                 </span>
-                <span className="text-[10px] text-slate-300">Cosecha y cría pasiva</span>
               </div>
               <div className="grid grid-cols-2 gap-1.5">
                 <button
                   type="button"
                   disabled={r.veg <= 0 || (state.hp >= state.maxHp && state.st >= state.maxSt)}
                   onClick={onEatVeg}
-                  className="px-2 py-1.5 rounded bg-lime-600 hover:bg-lime-500 disabled:opacity-40 text-white text-[11px] font-bold cursor-pointer"
+                  className="min-h-[40px] px-2 py-1.5 rounded bg-lime-600 hover:bg-lime-500 disabled:opacity-40 text-white text-[11px] font-bold cursor-pointer"
                 >
                   Comer 1 Veg (+22 HP/ST)
                 </button>
@@ -1008,27 +1408,23 @@ export function SlideDrawer({
                   type="button"
                   disabled={r.veg < 2 || r.pez < 1}
                   onClick={onCookGreenStew}
-                  className="px-2 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-[11px] font-bold cursor-pointer"
+                  className="min-h-[40px] px-2 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-[11px] font-bold cursor-pointer"
                 >
                   2 Veg + 1 Pez → +1 Guiso
                 </button>
               </div>
             </div>
 
-            {/* Build Farming Plots on Raft or Island */}
             <div className="rounded-lg p-2.5 bg-[#0b1f31] border border-[#1d3e5b] space-y-2">
               <div className="text-xs font-bold text-amber-300">
-                Huertos de Cultivo (Producción Pasiva)
-              </div>
-              <div className="text-[11px] text-slate-300">
-                Construye parcelas en tu navío ({raftPlotsCount}/4) o en islas. Al madurar cosechan comida automáticamente cada ciclo.
+                Huertos de Cultivo ({raftPlotsCount}/4 Balsa)
               </div>
               <div className="grid grid-cols-2 gap-1.5">
                 <button
                   type="button"
                   disabled={raftPlotsCount >= 4 || r.mad < 4 || r.agu < 2}
                   onClick={() => onBuildFarmPlot('raft')}
-                  className="px-2 py-1.5 rounded bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 text-[11px] font-bold cursor-pointer"
+                  className="min-h-[40px] px-2 py-1.5 rounded bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 text-[11px] font-bold cursor-pointer"
                 >
                   Huerto Balsa (4 Mad · 2 Agu)
                 </button>
@@ -1036,35 +1432,30 @@ export function SlideDrawer({
                   type="button"
                   disabled={!currentIslandName || r.mad < 4 || r.agu < 2}
                   onClick={() => onBuildFarmPlot('island')}
-                  className="px-2 py-1.5 rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white text-[11px] font-bold cursor-pointer"
+                  className="min-h-[40px] px-2 py-1.5 rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white text-[11px] font-bold cursor-pointer"
                 >
                   Huerto Isla (4 Mad · 2 Agu)
                 </button>
               </div>
 
-              <div className="pt-1 border-t border-[#18344d]">
-                <div className="text-[10px] font-semibold text-slate-400 mb-1">
-                  Semilla seleccionada para plantar:
-                </div>
-                <div className="grid grid-cols-2 gap-1">
-                  {CROPS_CATALOG.map((crop) => (
-                    <button
-                      key={crop.id}
-                      type="button"
-                      onClick={() => setSelectedCrop(crop.id)}
-                      className={`px-2 py-1 rounded border text-left text-[10px] cursor-pointer ${
-                        selectedCrop === crop.id
-                          ? 'bg-[#143752] border-amber-400 text-amber-200 font-bold'
-                          : 'bg-[#071522] border-[#18344d] text-slate-300'
-                      }`}
-                    >
-                      <div>{crop.name}</div>
-                      <div className="text-[9px] text-emerald-300">
-                        {formatCost(crop.seedCost)} → +{crop.yieldVeg} Veg
-                      </div>
-                    </button>
-                  ))}
-                </div>
+              <div className="grid grid-cols-2 gap-1">
+                {CROPS_CATALOG.map((crop) => (
+                  <button
+                    key={crop.id}
+                    type="button"
+                    onClick={() => setSelectedCrop(crop.id)}
+                    className={`px-2 py-1.5 rounded border text-left text-[10px] cursor-pointer ${
+                      selectedCrop === crop.id
+                        ? 'bg-[#143752] border-amber-400 text-amber-200 font-bold'
+                        : 'bg-[#071522] border-[#18344d] text-slate-300'
+                    }`}
+                  >
+                    <div>{crop.name}</div>
+                    <div className="text-[9px] text-emerald-300">
+                      {formatCost(crop.seedCost)} → +{crop.yieldVeg} Veg
+                    </div>
+                  </button>
+                ))}
               </div>
             </div>
 
@@ -1083,11 +1474,10 @@ export function SlideDrawer({
                     </div>
                     {cropDef ? (
                       <div className="text-[11px] text-emerald-300">
-                        {cropDef.name} · Crecimiento {Math.min(100, Math.round(plot.growth))}%
-                        {plot.watered ? ' · Regado (2x)' : ''}
+                        {cropDef.name} · {Math.min(100, Math.round(plot.growth))}%
                       </div>
                     ) : (
-                      <div className="text-[11px] text-slate-400">Parcela vacía lista para sembrar</div>
+                      <div className="text-[11px] text-slate-400">Lista para sembrar</div>
                     )}
                   </div>
                   {!plot.crop ? (
@@ -1095,7 +1485,7 @@ export function SlideDrawer({
                       type="button"
                       disabled={!canPlant}
                       onClick={() => onPlantCrop(plot.id, selectedCrop)}
-                      className="px-2.5 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-[11px] font-bold cursor-pointer shrink-0"
+                      className="min-h-[38px] px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-[11px] font-bold cursor-pointer shrink-0"
                     >
                       Sembrar
                     </button>
@@ -1104,7 +1494,7 @@ export function SlideDrawer({
                       type="button"
                       disabled={plot.watered || r.agu < 1}
                       onClick={() => onWaterPlot(plot.id)}
-                      className="px-2.5 py-1.5 rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white text-[11px] font-bold cursor-pointer shrink-0"
+                      className="min-h-[38px] px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white text-[11px] font-bold cursor-pointer shrink-0"
                     >
                       {plot.watered ? 'Regado' : 'Regar (1 Agu)'}
                     </button>
@@ -1113,73 +1503,60 @@ export function SlideDrawer({
               );
             })}
 
-            {/* Captured Animals & Breeding Corral */}
             <div className="pt-2 border-t border-[#193852] space-y-2">
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-bold text-amber-300">
-                  Corral Visible de Crianza
-                </span>
+                <span className="text-xs font-bold text-amber-300">Corral Visible</span>
                 <span className="font-mono-num text-[10px] font-bold text-sky-300">
                   Navío {raftAnimalsCount}/{raftCorralLimit} · Isla {islandAnimalsCount}/{islandCorralLimit}
                 </span>
               </div>
-              <div className="text-[11px] text-slate-300">
-                Tus animales capturados pastan dentro del corral de madera cercado del navío y de tu isla. Sube el nivel del navío o construye bases para ampliar el límite.
-              </div>
-              {state.captiveAnimals.length === 0 ? (
-                <div className="rounded-lg p-2.5 bg-[#071522] border border-[#18344d] text-[11px] text-slate-400">
-                  Aún no has capturado animales. Solo las especies domesticables (gallinas, cerdos, cabras y jabalíes) se dejan capturar; los lobos y escorpiones son salvajes indomables.
-                </div>
-              ) : (
-                state.captiveAnimals.map((cap) => {
-                  const info = ANIMAL_RANCH_INFO[cap.kind];
-                  const pct = Math.min(100, Math.round((cap.prodTimer / cap.prodInterval) * 100));
-                  const locCount =
-                    cap.location === 'raft'
-                      ? raftAnimalsCount
-                      : state.captiveAnimals.filter(
-                          (a) => a.location === 'island' && a.islandId === cap.islandId
-                        ).length;
-                  const locLimit =
-                    cap.location === 'raft'
-                      ? raftCorralLimit
-                      : getIslandCorralLimit(state, cap.islandId);
-                  return (
-                    <div
-                      key={cap.id}
-                      className="rounded-lg p-2.5 bg-[#0b1f31] border border-[#1d3e5b] space-y-1.5"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-bold text-slate-100">
-                          {cap.name} · Nv.{cap.level} ({cap.location === 'raft' ? 'Corral Navío' : 'Corral Isla'})
-                        </span>
-                        <span className="text-[10px] font-mono-num text-emerald-300">
-                          +{info.yieldAmt + (cap.level - 1)} {info.yieldKey.toUpperCase()} ({pct}%)
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-slate-300">{info.role}</div>
-                      <div className="flex gap-1.5">
-                        <button
-                          type="button"
-                          disabled={r.veg < 1}
-                          onClick={() => onFeedCaptiveAnimal(cap.id)}
-                          className="flex-1 px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-[10px] font-bold cursor-pointer"
-                        >
-                          Alimentar (1 Veg → +Nv)
-                        </button>
-                        <button
-                          type="button"
-                          disabled={locCount >= locLimit || r.veg < 2 || r.agu < 2}
-                          onClick={() => onBreedCaptiveAnimal(cap.id)}
-                          className="flex-1 px-2 py-1 rounded bg-pink-600 hover:bg-pink-500 disabled:opacity-40 text-white text-[10px] font-bold cursor-pointer"
-                        >
-                          {locCount >= locLimit ? 'Corral lleno' : 'Criar Cría (2 Veg · 2 Agu)'}
-                        </button>
-                      </div>
+              {state.captiveAnimals.map((cap) => {
+                const info = ANIMAL_RANCH_INFO[cap.kind];
+                const pct = Math.min(100, Math.round((cap.prodTimer / cap.prodInterval) * 100));
+                const locCount =
+                  cap.location === 'raft'
+                    ? raftAnimalsCount
+                    : state.captiveAnimals.filter(
+                        (a) => a.location === 'island' && a.islandId === cap.islandId
+                      ).length;
+                const locLimit =
+                  cap.location === 'raft'
+                    ? raftCorralLimit
+                    : getIslandCorralLimit(state, cap.islandId);
+                return (
+                  <div
+                    key={cap.id}
+                    className="rounded-lg p-2.5 bg-[#0b1f31] border border-[#1d3e5b] space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-slate-100">
+                        {cap.name} · Nv.{cap.level}
+                      </span>
+                      <span className="text-[10px] font-mono-num text-emerald-300">
+                        +{info.yieldAmt + (cap.level - 1)} {info.yieldKey.toUpperCase()} ({pct}%)
+                      </span>
                     </div>
-                  );
-                })
-              )}
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        disabled={r.veg < 1}
+                        onClick={() => onFeedCaptiveAnimal(cap.id)}
+                        className="flex-1 min-h-[38px] px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-[10px] font-bold cursor-pointer"
+                      >
+                        Alimentar (1 Veg)
+                      </button>
+                      <button
+                        type="button"
+                        disabled={locCount >= locLimit || r.veg < 2 || r.agu < 2}
+                        onClick={() => onBreedCaptiveAnimal(cap.id)}
+                        className="flex-1 min-h-[38px] px-2 py-1 rounded bg-pink-600 hover:bg-pink-500 disabled:opacity-40 text-white text-[10px] font-bold cursor-pointer"
+                      >
+                        {locCount >= locLimit ? 'Lleno' : 'Criar (2 Veg · 2 Agu)'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -1192,30 +1569,26 @@ export function SlideDrawer({
                   Pueblo Cercano: {nearbyVillage.villageName}
                 </div>
                 <div className="text-[11px] text-slate-200 mt-0.5">
-                  Tú decides: comercia amistosamente o saquéalo por botín inmediato.
+                  Si decides saquearlo, toda tu tripulación bajará a robar y hacer de las suyas.
                 </div>
                 <div className="mt-2 flex gap-2">
                   <button
                     type="button"
                     onClick={() => onVillageAction(nearbyVillage, 'trade')}
-                    className="flex-1 px-2.5 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white cursor-pointer"
+                    className="flex-1 min-h-[40px] px-2.5 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white cursor-pointer"
                   >
-                    Comerciar (+Oro/Amistad)
+                    Comerciar
                   </button>
                   <button
                     type="button"
                     onClick={() => onVillageAction(nearbyVillage, 'pillage')}
-                    className="flex-1 px-2.5 py-1.5 rounded bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white cursor-pointer"
+                    className="flex-1 min-h-[40px] px-2.5 py-1.5 rounded bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white cursor-pointer"
                   >
-                    ¡Saquear Pueblo!
+                    ¡Saquear con Tripulación!
                   </button>
                 </div>
               </div>
             )}
-
-            <div className="text-xs font-semibold text-slate-400">
-              Reinos y Guerra de Islas {!state.hqIslandId && '(Requiere Cuartel HQ para declarar guerra)'}
-            </div>
 
             {KINGDOMS_CATALOG.map((kd) => {
               const kState = state.kingdoms.find((x) => x.id === kd.id);
@@ -1242,9 +1615,6 @@ export function SlideDrawer({
                       {statusText} ({rel})
                     </span>
                   </div>
-                  <div className="text-[10px] text-slate-400 mt-0.5">
-                    Gobernante: {kd.ruler} · {kd.specialty}
-                  </div>
                   <div className="text-[11px] text-slate-300 mt-1">{kd.description}</div>
 
                   {!kState?.conquered && (
@@ -1253,7 +1623,7 @@ export function SlideDrawer({
                         type="button"
                         disabled={r.oro < 3}
                         onClick={() => onKingdomAction(kd.id, 'gift')}
-                        className="px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-[11px] font-bold text-white cursor-pointer"
+                        className="min-h-[36px] px-2.5 py-1 rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-[11px] font-bold text-white cursor-pointer"
                       >
                         Regalo (3 Oro)
                       </button>
@@ -1262,7 +1632,7 @@ export function SlideDrawer({
                           type="button"
                           disabled={r.oro < 8}
                           onClick={() => onKingdomAction(kd.id, 'peace')}
-                          className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-[11px] font-bold text-white cursor-pointer"
+                          className="min-h-[36px] px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-[11px] font-bold text-white cursor-pointer"
                         >
                           Firmar Paz (8 Oro)
                         </button>
@@ -1271,9 +1641,9 @@ export function SlideDrawer({
                           type="button"
                           disabled={!state.hqIslandId}
                           onClick={() => onDeclareIslandWar(kd.id)}
-                          className="px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-[11px] font-bold text-white cursor-pointer"
+                          className="min-h-[36px] px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-500 disabled:opacity-40 text-[11px] font-bold text-white cursor-pointer"
                         >
-                          Declarar Guerra de Islas
+                          Guerra de Islas
                         </button>
                       )}
                     </div>
@@ -1281,39 +1651,11 @@ export function SlideDrawer({
                 </div>
               );
             })}
-
-            <div className="text-xs font-semibold text-slate-400 pt-1">Amigos y Enemigos</div>
-            {state.acquaintances.map((acq) => (
-              <div
-                key={acq.id}
-                className="rounded-lg p-2.5 bg-[#0b1f31] border border-[#1c3b56]"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-bold text-slate-100">{acq.name}</span>
-                  <span
-                    className={`text-[10px] font-bold uppercase ${
-                      acq.status === 'amigo'
-                        ? 'text-emerald-300'
-                        : acq.status === 'enemigo'
-                          ? 'text-rose-400'
-                          : 'text-amber-300'
-                    }`}
-                  >
-                    {acq.status}
-                  </span>
-                </div>
-                <div className="text-[11px] text-slate-300 mt-0.5">{acq.bio}</div>
-              </div>
-            ))}
           </div>
         )}
 
         {tab === 'trade' && (
           <div className="space-y-2">
-            <div className="rounded-lg p-2.5 bg-[#0d2235] border border-[#1f415e] text-xs text-slate-300">
-              <b className="text-amber-300">Mercado del Horizonte:</b> Los recursos escasean.
-              Comercia carbón, hierro, piezas tecnológicas y víveres.
-            </div>
             <TradeRow title="Vender 6 Madera → +3 Oro" disabled={r.mad < 6} onClick={() => onTrade('sell_mad')} />
             <TradeRow title="Vender 4 Pez → +3 Oro" disabled={r.pez < 4} onClick={() => onTrade('sell_pez')} />
             <TradeRow title="Vender 5 Carbón → +4 Oro" disabled={r.car < 5} onClick={() => onTrade('sell_car')} />
@@ -1329,10 +1671,11 @@ export function SlideDrawer({
         )}
 
         {tab === 'crew' && (
-          <div className="space-y-2.5">
+          <div className="space-y-3">
             <div className="rounded-lg p-2.5 bg-[#0d2235] border border-[#1f415e] text-[11px] text-slate-300">
-              Toda tu tripulación pelea y defiende el navío contra piratas abordadores y monstruos según su fuerza individual.
+              Tu tripulación desembarca en las islas contigo para buscar provisiones, disfrutar sus gustos y saquear pueblos si así lo ordenas.
             </div>
+
             {SURVIVORS_CATALOG.map((def) => {
               const st = state.survivors.find((s) => s.id === def.id);
               const unlocked = Boolean(st?.unlocked);
@@ -1343,9 +1686,11 @@ export function SlideDrawer({
               const affordable = canAfford(r, cost);
               const npcMood = getNpcMoodState(state, def.id);
               const moodMeta = MOOD_META[npcMood.mood] || MOOD_META.equilibrio;
+              const history = state.npcChatHistory?.[def.id] || [];
+              const showHist = expandedHistoryNpcId === def.id;
 
               return (
-                <div key={def.id} className="rounded-lg p-3 bg-[#0b1f31] border border-[#1d3e5b]">
+                <div key={def.id} className="rounded-lg p-3 bg-[#0b1f31] border border-[#1d3e5b] space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -1370,14 +1715,6 @@ export function SlideDrawer({
                       <div className="text-[10px] font-semibold text-amber-300 mt-0.5">
                         {def.role} · Fuerza: {def.strengthLabel}
                       </div>
-                      {unlocked && (
-                        <div className="text-[10px] text-cyan-200 mt-0.5">
-                          Estado: {npcMood.reason} (Afinidad {npcMood.affinity >= 0 ? `+${npcMood.affinity}` : npcMood.affinity})
-                        </div>
-                      )}
-                      <div className="text-[11px] text-sky-300 font-medium mt-0.5">
-                        {def.uniqueSkillName}
-                      </div>
                       <div className="text-[11px] text-slate-300 mt-0.5">{def.personality}</div>
                       <div className="text-[10px] text-emerald-300 mt-0.5">{def.uniqueSkillDesc}</div>
                     </div>
@@ -1386,7 +1723,7 @@ export function SlideDrawer({
                         type="button"
                         disabled={!affordable}
                         onClick={() => onRecruitOrUpgradeSurvivor(def.id)}
-                        className="px-2.5 py-1.5 rounded bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 text-xs font-bold whitespace-nowrap cursor-pointer"
+                        className="min-h-[38px] px-2.5 py-1 rounded bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 text-xs font-bold whitespace-nowrap cursor-pointer"
                       >
                         {unlocked ? 'Mejorar' : 'Reclutar'}
                       </button>
@@ -1394,20 +1731,75 @@ export function SlideDrawer({
                         <button
                           type="button"
                           onClick={() => onTalkToNpc(def.id)}
-                          className="px-2.5 py-1 rounded bg-cyan-500/20 hover:bg-cyan-500/35 border border-cyan-400/50 text-cyan-200 text-[11px] font-bold whitespace-nowrap cursor-pointer inline-flex items-center justify-center gap-1"
+                          className="min-h-[38px] px-2.5 py-1 rounded bg-cyan-500/20 hover:bg-cyan-500/35 border border-cyan-400/50 text-cyan-200 text-[11px] font-bold whitespace-nowrap cursor-pointer inline-flex items-center justify-center gap-1"
                         >
-                          <MessageCircle className="w-3 h-3" />
+                          <MessageCircle className="w-3.5 h-3.5" />
                           <span>Hablar</span>
+                        </button>
+                      )}
+                      {history.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setExpandedHistoryNpcId(showHist ? null : def.id)}
+                          className="min-h-[32px] px-2 py-0.5 rounded bg-[#071522] border border-[#244c70] text-[10px] font-bold text-amber-200 inline-flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <History className="w-3 h-3" />
+                          <span>Historial ({history.length})</span>
                         </button>
                       )}
                     </div>
                   </div>
-                  <div className="text-[10px] font-mono-num text-emerald-300 mt-1.5">
+                  <div className="text-[10px] font-mono-num text-emerald-300">
                     Costo: {formatCost(cost)}
                   </div>
+                  {showHist && history.length > 0 && (
+                    <div className="rounded bg-[#06131f] border border-[#1a3a57] p-2 max-h-32 overflow-y-auto deck-scroll space-y-1">
+                      {history.slice(-10).map((entry, idx) => (
+                        <div key={idx} className="text-[10px] text-slate-300">
+                          <b className="text-sky-300">{entry.name}:</b> {entry.text}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}
+
+            {/* Discovered World NPCs Directory (Armero, Forjador, Mercader, Alquimista, Cartógrafo, Chatarrero) */}
+            <div className="pt-2 border-t border-[#193852] space-y-2">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
+                <Compass className="w-4 h-4" />
+                <span>NPCs Especialistas del Mundo ({state.discoveredWorldNpcs?.length || 0})</span>
+              </div>
+              {(!state.discoveredWorldNpcs || state.discoveredWorldNpcs.length === 0) ? (
+                <div className="rounded-lg p-2.5 bg-[#071522] border border-[#18344d] text-[11px] text-slate-400">
+                  Explora islas o visita el Pontón Forja del Alba en (360, -250) para descubrir Armeros, Forjadores, Mercaderes, Alquimistas, Cartógrafos y Chatarreros.
+                </div>
+              ) : (
+                state.discoveredWorldNpcs.map((npc) => (
+                  <div
+                    key={npc.id}
+                    className="rounded-lg p-2.5 bg-[#0b1f31] border border-[#214769] flex items-center justify-between gap-2"
+                  >
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-slate-100 truncate">
+                        {npc.name} · <span className="text-amber-300 uppercase text-[10px]">{npc.role}</span>
+                      </div>
+                      <div className="text-[10px] text-sky-300 font-mono-num">
+                        {npc.islandName} · ({Math.round(npc.x)}, {Math.round(npc.y)})
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onTalkToNpc(npc.id)}
+                      className="min-h-[36px] px-2.5 py-1 rounded bg-[#102940] hover:bg-[#173b5c] border border-[#2a557c] text-[10px] font-bold text-cyan-200 cursor-pointer shrink-0"
+                    >
+                      Conversar
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         )}
 
@@ -1416,17 +1808,13 @@ export function SlideDrawer({
             {state.donorUnlocked && (
               <div className="rounded-lg bg-amber-500/10 border border-amber-400/45 p-2.5 flex items-center justify-between gap-2">
                 <div>
-                  <div className="text-xs font-bold text-amber-300">
-                    Aspecto Exclusivo de Mecenas
-                  </div>
-                  <div className="text-[10px] text-slate-300">
-                    Cambia la apariencia de tu personaje y refugios a dorado real.
-                  </div>
+                  <div className="text-xs font-bold text-amber-300">Aspecto Exclusivo de Mecenas</div>
+                  <div className="text-[10px] text-slate-300">Cambia tu apariencia a dorado real.</div>
                 </div>
                 <button
                   type="button"
                   onClick={onToggleDonorSkin}
-                  className={`px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer shrink-0 ${
+                  className={`min-h-[38px] px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer shrink-0 ${
                     state.donorSkinEnabled
                       ? 'bg-emerald-500 text-slate-950'
                       : 'bg-[#122e47] text-slate-200 border border-[#285378]'
@@ -1436,16 +1824,15 @@ export function SlideDrawer({
                 </button>
               </div>
             )}
+
             <div className="space-y-1.5">
-              <div className="text-xs font-bold text-amber-300">
-                Títulos Épicos y Legendarios
-              </div>
-              {TITLES_CATALOG.map((t) => {
-                const unlocked = state.unlockedTitles.includes(t.id);
-                const active = state.activeTitleId === t.id;
+              <div className="text-xs font-bold text-amber-300">Títulos Épicos y Legendarios</div>
+              {TITLES_CATALOG.map((tt) => {
+                const unlocked = state.unlockedTitles.includes(tt.id);
+                const active = state.activeTitleId === tt.id;
                 return (
                   <div
-                    key={t.id}
+                    key={tt.id}
                     className={`rounded-lg p-2 border flex items-center justify-between gap-2 ${
                       active
                         ? 'bg-[#172c44] border-amber-400'
@@ -1458,27 +1845,25 @@ export function SlideDrawer({
                       <div className="flex items-center gap-1.5">
                         <span
                           className={`text-[10px] font-bold uppercase ${
-                            t.tier === 'legendario'
+                            tt.tier === 'legendario'
                               ? 'text-amber-300'
-                              : t.tier === 'epico'
+                              : tt.tier === 'epico'
                                 ? 'text-purple-300'
                                 : 'text-sky-300'
                           }`}
                         >
-                          [{t.tier}]
+                          [{tt.tier}]
                         </span>
-                        <span className="text-xs font-bold text-slate-100 truncate">{t.name}</span>
+                        <span className="text-xs font-bold text-slate-100 truncate">{tt.name}</span>
                       </div>
-                      <div className="text-[10px] text-emerald-300 mt-0.5">{t.bonusText}</div>
-                      {!unlocked && (
-                        <div className="text-[10px] text-slate-400">{t.requirementText}</div>
-                      )}
+                      <div className="text-[10px] text-emerald-300 mt-0.5">{tt.bonusText}</div>
+                      {!unlocked && <div className="text-[10px] text-slate-400">{tt.requirementText}</div>}
                     </div>
                     {unlocked && (
                       <button
                         type="button"
-                        onClick={() => onSelectTitle(t.id)}
-                        className={`px-2 py-1 rounded text-[11px] font-bold cursor-pointer shrink-0 ${
+                        onClick={() => onSelectTitle(tt.id)}
+                        className={`min-h-[36px] px-2.5 py-1 rounded text-[11px] font-bold cursor-pointer shrink-0 ${
                           active ? 'bg-amber-400 text-slate-950' : 'bg-[#163a57] text-sky-200'
                         }`}
                       >
@@ -1492,7 +1877,7 @@ export function SlideDrawer({
 
             <div className="space-y-2 pt-2 border-t border-[#193852]">
               <div className="text-xs font-bold text-pink-300">
-                Mozas, Pareja e Hijos
+                Pareja Visible en el Cartel / Pueblo e Hijos en Misiones
               </div>
 
               {state.family.married && state.family.partnerId && (
@@ -1502,33 +1887,71 @@ export function SlideDrawer({
                     {ROMANCE_CANDIDATES.find((c) => c.id === state.family.partnerId)?.name}
                   </div>
                   <div className="text-[11px] text-slate-300 mt-0.5">
-                    Hijos a bordo: {state.family.children.length}/4 (+10 HP máx cada hijo)
+                    Hijos visibles: {state.family.children.length}/4 (+10 HP máx cada hijo)
                   </div>
                   <button
                     type="button"
                     disabled={state.family.children.length >= 4 || r.gui < 1 || r.oro < 4}
                     onClick={onHaveChild}
-                    className="mt-2 px-3 py-1.5 rounded bg-pink-600 hover:bg-pink-500 disabled:opacity-40 text-xs font-bold text-white cursor-pointer"
+                    className="mt-2 min-h-[40px] px-3 py-1.5 rounded bg-pink-600 hover:bg-pink-500 disabled:opacity-40 text-xs font-bold text-white cursor-pointer"
                   >
                     Tener Hijo (1 Guiso · 4 Oro)
                   </button>
                 </div>
               )}
 
-              {state.family.children.map((child) => (
-                <div
-                  key={child.id}
-                  className="rounded-lg px-3 py-2 bg-[#0b1f31] border border-pink-400/40 flex items-center justify-between"
-                >
-                  <div>
-                    <div className="text-xs font-bold text-pink-200">
-                      {child.name} ({child.stage})
+              {state.family.children.map((child) => {
+                const mission = child.activeMission;
+                return (
+                  <div
+                    key={child.id}
+                    className="rounded-lg px-3 py-2.5 bg-[#0b1f31] border border-pink-400/40 space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-xs font-bold text-pink-200">
+                          {child.name} ({child.stage})
+                        </div>
+                        <div className="text-[10px] text-slate-300">Rasgo: {child.trait}</div>
+                      </div>
+                      <span className="text-[10px] text-emerald-300 font-semibold">+10 HP</span>
                     </div>
-                    <div className="text-[10px] text-slate-300">Rasgo: {child.trait}</div>
+
+                    {mission ? (
+                      <div className="rounded bg-[#071522] border border-cyan-500/35 px-2.5 py-1.5 text-[10px] text-cyan-200">
+                        En misión ({mission.kind}): <b>{mission.targetName}</b> ·{' '}
+                        <span className="font-mono-num">{Math.ceil(mission.remainingSec)}s</span>
+                      </div>
+                    ) : (
+                      onSendChildMission && (
+                        <div className="grid grid-cols-3 gap-1">
+                          <button
+                            type="button"
+                            onClick={() => onSendChildMission(child.id, 'explore')}
+                            className="min-h-[34px] px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white text-[10px] font-bold cursor-pointer"
+                          >
+                            Explorar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onSendChildMission(child.id, 'trade')}
+                            className="min-h-[34px] px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold cursor-pointer"
+                          >
+                            Comercio
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onSendChildMission(child.id, 'raid')}
+                            className="min-h-[34px] px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-bold cursor-pointer"
+                          >
+                            Guerra
+                          </button>
+                        </div>
+                      )
+                    )}
                   </div>
-                  <span className="text-[10px] text-emerald-300 font-semibold">+10 HP</span>
-                </div>
-              ))}
+                );
+              })}
 
               {ROMANCE_CANDIDATES.map((cand) => {
                 const aff = state.family.affection[cand.id] || 0;
@@ -1549,7 +1972,6 @@ export function SlideDrawer({
                       </span>
                     </div>
                     <div className="text-[10px] text-slate-400">{cand.role} · {cand.location}</div>
-                    <div className="text-[11px] text-slate-300 mt-0.5">{cand.personality}</div>
                     <div className="mt-2 flex items-center justify-between gap-2">
                       <span className="text-[10px] font-mono-num text-emerald-300">
                         Regalo: {formatCost(cand.giftCost)}
@@ -1559,7 +1981,7 @@ export function SlideDrawer({
                           type="button"
                           disabled={!canGift}
                           onClick={() => onRomanceAction(cand.id, 'court')}
-                          className="px-2.5 py-1 rounded bg-pink-600 hover:bg-pink-500 disabled:opacity-40 text-[11px] font-bold text-white cursor-pointer"
+                          className="min-h-[36px] px-2.5 py-1 rounded bg-pink-600 hover:bg-pink-500 disabled:opacity-40 text-[11px] font-bold text-white cursor-pointer"
                         >
                           Cortejar
                         </button>
@@ -1567,7 +1989,7 @@ export function SlideDrawer({
                           <button
                             type="button"
                             onClick={() => onRomanceAction(cand.id, 'marry')}
-                            className="px-2.5 py-1 rounded bg-amber-400 hover:bg-amber-300 text-[11px] font-bold text-slate-950 cursor-pointer"
+                            className="min-h-[36px] px-2.5 py-1 rounded bg-amber-400 hover:bg-amber-300 text-[11px] font-bold text-slate-950 cursor-pointer"
                           >
                             Casarse
                           </button>
@@ -1589,9 +2011,7 @@ export function SlideDrawer({
         {tab === 'relics' && (
           <div className="space-y-2.5">
             <div className="rounded-lg p-2.5 bg-[#0d2235] border border-[#1f415e] text-xs text-slate-300">
-              <b className="text-amber-300">Reliquias del Mundo Antiguo:</b> Clasificadas de{' '}
-              <b>Rango F</b> a <b>Rango SZS</b>. Son tan raras en cofres y jefes que hallar una
-              SZS es un milagro. Equipadas:{' '}
+              <b className="text-amber-300">Reliquias del Mundo Antiguo:</b> Equipadas:{' '}
               <b className="font-mono-num text-sky-300">{state.equippedRelics.length}/3</b>
             </div>
 
@@ -1627,16 +2047,13 @@ export function SlideDrawer({
                       <div className="text-[11px] text-emerald-300 font-medium mt-1">
                         {owned ? rel.utility : 'Encuéntrala en cofres de islas o jefes abisales.'}
                       </div>
-                      {owned && (
-                        <div className="text-[10px] text-slate-400 mt-0.5">{rel.description}</div>
-                      )}
                     </div>
 
                     {owned && (
                       <button
                         type="button"
                         onClick={() => onToggleRelic(rel.id)}
-                        className={`px-2.5 py-1.5 rounded text-xs font-bold whitespace-nowrap cursor-pointer shrink-0 ${
+                        className={`min-h-[38px] px-2.5 py-1.5 rounded text-xs font-bold whitespace-nowrap cursor-pointer shrink-0 ${
                           equipped
                             ? 'bg-amber-400 text-slate-950'
                             : 'bg-[#163a57] hover:bg-[#1e4d73] text-sky-200'
@@ -1663,7 +2080,15 @@ export function SlideDrawer({
                     ? state.destinyUnlocked.length
                     : ach.statKey === 'level'
                       ? state.level
-                      : state.stats[ach.statKey];
+                      : ach.statKey === 'dayCount'
+                        ? state.dayCount
+                        : ach.statKey === 'bountyMillions'
+                          ? Math.floor(state.bounty / 1000000)
+                          : ach.statKey === 'nuclearShieldReady'
+                            ? state.warshipNuclearShield
+                              ? 1
+                              : 0
+                            : state.stats[ach.statKey];
 
               return (
                 <div
@@ -1733,7 +2158,7 @@ function UpgradeRow({
         type="button"
         disabled={!affordable}
         onClick={onClick}
-        className="px-3 py-1.5 rounded bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 text-xs font-bold whitespace-nowrap cursor-pointer shrink-0"
+        className="min-h-[40px] px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 disabled:opacity-40 text-slate-950 text-xs font-bold whitespace-nowrap cursor-pointer shrink-0"
       >
         {buttonLabel}
       </button>
@@ -1757,7 +2182,7 @@ function TradeRow({
         type="button"
         disabled={disabled}
         onClick={onClick}
-        className="px-3 py-1.5 rounded bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white text-xs font-bold cursor-pointer shrink-0"
+        className="min-h-[38px] px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white text-xs font-bold cursor-pointer shrink-0"
       >
         Canjear
       </button>

@@ -11,12 +11,285 @@ import {
   generateDailyNewsArticles,
 } from './socialAndKingdoms';
 import { createInitialStoryMissions } from './storyMissions';
-import type { PersistentState, PlayerProfile, ResourceBag, ResourceKey, SurvivorId } from './types';
+import type {
+  GameSettings,
+  PersistentState,
+  PlayerEntity,
+  PlayerProfile,
+  ResourceBag,
+  ResourceKey,
+  SurvivorId,
+  WarshipPassiveDef,
+  WeaponDef,
+} from './types';
 
 export const SAVE_KEY = 'marea_mutante_v6_save';
 export const PROFILE_KEY = 'marea_mutante_profile_v1';
 export const DONOR_PERK_KEY = 'marea_mutante_donor_v1';
 export const MAX_FREE_DEATHS = 5;
+
+export const DEFAULT_GAME_SETTINGS: GameSettings = {
+  hudScale: 1,
+  joystickScale: 1,
+  joystickOpacity: 0.72,
+  actionBtnScale: 1,
+  orientationPref: 'auto',
+  twinStickMobile: false,
+};
+
+export const WARSHIP_PASSIVES_CATALOG: WarshipPassiveDef[] = [
+  {
+    id: 'wp_blindaje_titanio',
+    name: 'Casco Reactivo de Titanio',
+    description: 'Placas dobles que amortiguan embestidas de flotas y monstruos gigantes.',
+    bonusText: '+180 HP máx del Buque · -25% daño al casco',
+    minRaftLevel: 7,
+    cost: { hie: 10, tit: 6, mad: 14 },
+  },
+  {
+    id: 'wp_torretas_dobles',
+    name: 'Matriz Automática de Artillería',
+    description: 'Sincroniza las torretas del Buque para disparar con mayor cadencia y daño.',
+    bonusText: '+30% cadencia y daño de torretas navales',
+    minRaftLevel: 7,
+    cost: { tec: 4, hie: 8, oro: 10 },
+  },
+  {
+    id: 'wp_cubierta_tripulacion',
+    name: 'Cubierta Táctica de Tripulación',
+    description: 'Estaciones blindadas de fuego para que toda la tripulación ataque más rápido.',
+    bonusText: '+22% daño y velocidad de ataque de la tripulación',
+    minRaftLevel: 7,
+    cost: { mad: 16, oro: 12, alc: 4 },
+  },
+  {
+    id: 'wp_turbina_hidro',
+    name: 'Turbinas Hidrodinámicas',
+    description: 'Hélice reforzada de buque pesado para surcar tormentas a máxima velocidad.',
+    bonusText: '+24% velocidad del Buque de Guerra',
+    minRaftLevel: 7,
+    cost: { tec: 5, car: 10, tit: 4 },
+  },
+  {
+    id: 'wp_anti_radiacion',
+    name: 'Purificador de Núcleo',
+    description: 'Filtros internos que disipan radiación ambiental y reparan grietas lentamente.',
+    bonusText: '-50% radiación recibida · +1.5 HP/s reparación de casco',
+    minRaftLevel: 7,
+    cost: { tec: 6, cri: 3, nuc_frag: 2 },
+  },
+];
+
+export function hasWarshipPassive(state: PersistentState, id: string): boolean {
+  return state.raft.level >= 7 && Array.isArray(state.warshipPassives) && state.warshipPassives.includes(id);
+}
+
+export interface AoeAgeDef {
+  tier: 1 | 2 | 3 | 4;
+  name: string;
+  subtitle: string;
+  cost: Partial<ResourceBag>;
+  bonusText: string;
+}
+
+export const AOE_AGES_CATALOG: AoeAgeDef[] = [
+  {
+    tier: 1,
+    name: 'Edad I · Madera y Refugio',
+    subtitle: 'Asentamientos básicos, casas y recolección inicial.',
+    cost: {},
+    bonusText: 'Desbloquea Casas, Molinos y Empalizadas.',
+  },
+  {
+    tier: 2,
+    name: 'Edad II · Hierro y Pólvora',
+    subtitle: 'Forjas militares, cuarteles y torres de vigilancia.',
+    cost: { mad: 18, hie: 10, oro: 8 },
+    bonusText: '+20% HP a muros/edificios · Desbloquea Cuartel y Herrería.',
+  },
+  {
+    tier: 3,
+    name: 'Edad III · Era Imperial',
+    subtitle: 'Mercados navales, muelles de patrulla y tropas blindadas.',
+    cost: { mad: 24, hie: 16, tit: 6, oro: 18 },
+    bonusText: '+30% ataque de guardias · Desbloquea Muelle Patrulla y Mercado.',
+  },
+  {
+    tier: 4,
+    name: 'Edad IV · Era Nuclear',
+    subtitle: 'Complejos atómicos, reactores y armamento supremo.',
+    cost: { hie: 22, tit: 14, tec: 10, cri: 6, oro: 28 },
+    bonusText: 'Habilita Laboratorio/Reactor Nuclear y máxima capacidad poblacional.',
+  },
+];
+
+export interface AoeBuildingDef {
+  kind: PersistentState['islandStructures'][number]['kind'];
+  name: string;
+  minAge: 1 | 2 | 3 | 4;
+  maxHp: number;
+  popBonus?: number;
+  cost: Partial<ResourceBag>;
+  description: string;
+}
+
+export const AOE_BUILDINGS_CATALOG: AoeBuildingDef[] = [
+  {
+    kind: 'house',
+    name: 'Casa Isleña',
+    minAge: 1,
+    maxHp: 220,
+    popBonus: 4,
+    cost: { mad: 8, cht: 3 },
+    description: '+4 Población máxima para entrenar aldeanos y guardias.',
+  },
+  {
+    kind: 'mill',
+    name: 'Molino de Víveres',
+    minAge: 1,
+    maxHp: 260,
+    cost: { mad: 10, cht: 4, veg: 2 },
+    description: 'Produce Cultivos y Agua automáticamente cada ciclo.',
+  },
+  {
+    kind: 'wall',
+    name: 'Muralla Fortificada',
+    minAge: 1,
+    maxHp: 560,
+    cost: { mad: 8, hie: 6 },
+    description: 'Bloquea y daña enemigos terrestres; alta resistencia.',
+  },
+  {
+    kind: 'barracks',
+    name: 'Cuartel Militar',
+    minAge: 2,
+    maxHp: 380,
+    cost: { mad: 14, hie: 8, oro: 4 },
+    description: 'Entrena Guardias armados que patrullan y defienden la isla.',
+  },
+  {
+    kind: 'blacksmith',
+    name: 'Herrería de Guerra',
+    minAge: 2,
+    maxHp: 340,
+    cost: { mad: 10, hie: 10, car: 4 },
+    description: 'Investiga tecnologías de acero, murallas y pólvora.',
+  },
+  {
+    kind: 'watchtower',
+    name: 'Atalaya de Artillería',
+    minAge: 2,
+    maxHp: 360,
+    cost: { mad: 12, hie: 8, cht: 6 },
+    description: 'Torre alta de largo alcance contra piratas y zombis.',
+  },
+  {
+    kind: 'market',
+    name: 'Mercado Real',
+    minAge: 3,
+    maxHp: 320,
+    cost: { mad: 14, oro: 10, hie: 6 },
+    description: 'Genera Oro pasivo y mejora los trueques mercantes.',
+  },
+  {
+    kind: 'patrol_dock',
+    name: 'Muelle de Patrulla',
+    minAge: 3,
+    maxHp: 400,
+    cost: { mad: 16, hie: 10, tit: 4 },
+    description: 'Despliega Barcos Patrulla aliados alrededor de tu isla.',
+  },
+];
+
+export interface AoeTechDef {
+  id: string;
+  name: string;
+  minAge: 1 | 2 | 3 | 4;
+  cost: Partial<ResourceBag>;
+  bonusText: string;
+}
+
+export const AOE_TECHS_CATALOG: AoeTechDef[] = [
+  {
+    id: 'forja_hierro',
+    name: 'Forja de Acero Templado',
+    minAge: 2,
+    cost: { hie: 8, car: 6, oro: 6 },
+    bonusText: '+30% daño de Guardias y Aldeanos defensores.',
+  },
+  {
+    id: 'ingenieria_muralla',
+    name: 'Albañilería Reforzada',
+    minAge: 2,
+    cost: { mad: 14, hie: 10 },
+    bonusText: '+45% resistencia máxima de Murallas, Refugios y Torres.',
+  },
+  {
+    id: 'tactica_patrulla',
+    name: 'Doctrina de Flota Isleña',
+    minAge: 3,
+    cost: { tit: 6, tec: 4, oro: 12 },
+    bonusText: '+35% velocidad y cadencia de Barcos Patrulla y Torretas.',
+  },
+  {
+    id: 'cosecha_imperial',
+    name: 'Rotación Agrícola',
+    minAge: 3,
+    cost: { veg: 8, agu: 8, oro: 8 },
+    bonusText: '+50% recolección de Aldeanos y Molinos.',
+  },
+];
+
+export function getPopulationStats(state: PersistentState): {
+  pop: number;
+  popCap: number;
+  villagers: number;
+  guards: number;
+  patrolShips: number;
+} {
+  const units = Array.isArray(state.islandUnits) ? state.islandUnits : [];
+  const villagers = units.filter((u) => u.kind === 'villager').length;
+  const guards = units.filter((u) => u.kind === 'guard').length;
+  const patrolShips = units.filter((u) => u.kind === 'patrol_ship').length;
+  const houses = state.islandStructures.filter((s) => s.kind === 'house').length;
+  const hqs = state.islandStructures.filter((s) => s.kind === 'hq' || s.kind === 'settlement').length;
+  const popCap = Math.min(36, 4 + houses * 4 + hqs * 3 + ((state.ageTier || 1) - 1) * 3);
+  return {
+    pop: units.length,
+    popCap,
+    villagers,
+    guards,
+    patrolShips,
+  };
+}
+
+export function canFireNuclearWeapon(
+  state: PersistentState,
+  player: PlayerEntity,
+  weapon: WeaponDef | null | undefined
+): { allowed: boolean; reason?: string } {
+  if (!weapon?.isNuclear) return { allowed: true };
+  if (!player.onRaft) {
+    return {
+      allowed: false,
+      reason: 'Las armas nucleares SOLO pueden dispararse a bordo del Buque de Guerra Nuclear.',
+    };
+  }
+  if (state.raft.level < 7) {
+    return {
+      allowed: false,
+      reason: 'Mejora tu balsa hasta Buque de Guerra Nuclear (Nv.7) para usar armamento nuclear.',
+    };
+  }
+  if (!state.nuclearLabBuilt || !state.nuclearReactorBuilt || !state.radiationSuitCrafted || !state.warshipNuclearShield) {
+    return {
+      allowed: false,
+      reason:
+        'Requiere cadena nuclear completa: Laboratorio → Reactor Nuclear → Traje Antirradiación → Blindaje Nuclear del Buque.',
+    };
+  }
+  return { allowed: true };
+}
 
 export function getRemainingLives(state: PersistentState): number {
   return Math.max(
@@ -42,7 +315,7 @@ export function saveDonorUnlocked(unlocked: boolean): void {
 }
 
 export function getRaftHalfSize(raftLevel: number): number {
-  return Math.min(176, 72 + (Math.max(1, raftLevel) - 1) * 14);
+  return Math.min(188, 72 + (Math.max(1, raftLevel) - 1) * 15);
 }
 
 export function getRaftCorralLimit(raftLevel: number): number {
@@ -66,7 +339,7 @@ export function loadOrCreateProfile(): PlayerProfile {
         return {
           id: p.id,
           name: typeof p.name === 'string' && p.name.trim() ? p.name : 'Capitán Náufrago',
-          country: typeof p.country === 'string' && p.country ? p.country : 'MX',
+          country: typeof p.country === 'string' && p.country ? p.country : 'CO',
           maxScore: typeof p.maxScore === 'number' ? p.maxScore : 0,
         };
       }
@@ -78,7 +351,7 @@ export function loadOrCreateProfile(): PlayerProfile {
   const created: PlayerProfile = {
     id: `MM-${hex}`,
     name: 'Capitán Náufrago',
-    country: 'MX',
+    country: 'CO',
     maxScore: 0,
   };
   saveProfile(created);
@@ -103,6 +376,7 @@ export function computeSurvivalScore(state: PersistentState): number {
       state.stats.warsWon * 320 +
       (state.stats.bountiesClaimed || 0) * 350 +
       (state.stats.ruinsExplored || 0) * 110 +
+      (state.stats.elderLeviathansKilled || 0) * 1800 +
       state.raft.level * 160
   );
 }
@@ -114,7 +388,8 @@ export function computePlayerBounty(state: PersistentState): number {
     state.stats.banditKills * 1200000 +
     state.stats.villagesPillaged * 6500000 +
     state.stats.warsWon * 8000000 +
-    (state.stats.bountiesClaimed || 0) * 12000000
+    (state.stats.bountiesClaimed || 0) * 12000000 +
+    (state.stats.elderLeviathansKilled || 0) * 35000000
   );
 }
 
@@ -131,6 +406,12 @@ export const RESOURCE_LABELS: Record<ResourceKey, string> = {
   tit: 'Titanio',
   cri: 'Cristal',
   tec: 'Tecnología',
+  nuc_frag: 'Frag. Nuclear',
+  cel_frag: 'Frag. Celestial',
+  alc: 'Alcohol',
+  frag_epico: 'Frag. Épico',
+  frag_legendario: 'Frag. Legendario',
+  frag_divino: 'Frag. Divino',
 };
 
 export function initState(): PersistentState {
@@ -149,6 +430,18 @@ export function initState(): PersistentState {
     elapsedSeconds: 0,
     stealthTimer: 0,
     sound: true,
+    language: 'es',
+    settings: { ...DEFAULT_GAME_SETTINGS },
+    magicUnlocked: false,
+    nuclearLabBuilt: false,
+    nuclearReactorBuilt: false,
+    radiationSuitCrafted: false,
+    warshipNuclearShield: false,
+    shipRadioBuilt: false,
+    warshipPassives: [],
+    radiationExposure: 0,
+    hangoverTimer: 0,
+    jammedTimer: 0,
     playerProfile: profile,
     checkpoint: {
       x: 0,
@@ -179,6 +472,12 @@ export function initState(): PersistentState {
       tit: 0,
       cri: 0,
       tec: 0,
+      nuc_frag: 0,
+      cel_frag: 0,
+      alc: 1,
+      frag_epico: 0,
+      frag_legendario: 0,
+      frag_divino: 0,
     },
     consumables: {
       repelente: 1,
@@ -193,6 +492,9 @@ export function initState(): PersistentState {
     relicsOwned: [],
     equippedRelics: [],
     islandStructures: [],
+    ageTier: 1,
+    islandUnits: [],
+    aoeUpgrades: [],
     hqIslandId: null,
     hqIslandName: null,
     activeTitleId: loadDonorUnlocked() ? 'title_mecenas_cenizas' : 'title_naufrago',
@@ -255,6 +557,9 @@ export function initState(): PersistentState {
       stolenRecovered: 0,
       bountiesClaimed: 0,
       ruinsExplored: 0,
+      elderLeviathansKilled: 0,
+      celestialForged: 0,
+      radiosBuilt: 0,
     },
     discoveredIslands: [],
     swallowedIslands: [],
@@ -264,6 +569,8 @@ export function initState(): PersistentState {
     tutorialDismissed: false,
     vitals: createInitialVitals(),
     npcMoods: createInitialNpcMoods(),
+    npcChatHistory: {},
+    discoveredWorldNpcs: [],
   };
   state.newspaper.articles = generateDailyNewsArticles(state, 'despejado', 1);
   return state;
@@ -282,123 +589,146 @@ export function loadState(): PersistentState {
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) return initState();
     const d = JSON.parse(raw);
-    const base = initState();
-    const profile = loadOrCreateProfile();
-    const merged: PersistentState = {
-      ...base,
-      ...d,
-      hp: typeof d.hp === 'number' && d.hp > 0 ? d.hp : base.hp,
-      bounty: typeof d.bounty === 'number' ? d.bounty : base.bounty,
-      playerProfile: {
-        ...profile,
-        ...(d.playerProfile || {}),
-        id: profile.id,
-        maxScore: Math.max(profile.maxScore, d.playerProfile?.maxScore || 0),
-      },
-      checkpoint: d.checkpoint || base.checkpoint,
-      newspaper: d.newspaper && Array.isArray(d.newspaper.articles) ? d.newspaper : base.newspaper,
-      pirateBounties: Array.isArray(d.pirateBounties)
-        ? base.pirateBounties.map((pb) => {
-            const found = d.pirateBounties.find((x: { id: string }) => x.id === pb.id);
-            return found ? { ...pb, ...found } : pb;
-          })
-        : base.pirateBounties,
-      resources: { ...base.resources, ...(d.resources || {}) },
-      consumables: { ...base.consumables, ...(d.consumables || {}) },
-      raft: { ...base.raft, ...(d.raft || {}) },
-      stats: { ...base.stats, ...(d.stats || {}) },
-      craftedTech: Array.isArray(d.craftedTech) ? d.craftedTech : [],
-      farmPlots: Array.isArray(d.farmPlots) ? d.farmPlots : [],
-      captiveAnimals: Array.isArray(d.captiveAnimals) ? d.captiveAnimals : [],
-      relicsOwned: Array.isArray(d.relicsOwned) ? d.relicsOwned : [],
-      equippedRelics: Array.isArray(d.equippedRelics) ? d.equippedRelics.slice(0, 3) : [],
-      islandStructures: Array.isArray(d.islandStructures) ? d.islandStructures : [],
-      hqIslandId: typeof d.hqIslandId === 'string' ? d.hqIslandId : null,
-      hqIslandName: typeof d.hqIslandName === 'string' ? d.hqIslandName : null,
-      donorUnlocked: Boolean(d.donorUnlocked) || loadDonorUnlocked(),
-      donorSkinEnabled:
-        typeof d.donorSkinEnabled === 'boolean'
-          ? d.donorSkinEnabled
-          : Boolean(d.donorUnlocked) || loadDonorUnlocked(),
-      activeTitleId: typeof d.activeTitleId === 'string' ? d.activeTitleId : base.activeTitleId,
-      unlockedTitles: Array.from(
-        new Set([
-          'title_naufrago',
-          ...(Array.isArray(d.unlockedTitles) ? d.unlockedTitles : []),
-          ...(Boolean(d.donorUnlocked) || loadDonorUnlocked() ? ['title_mecenas_cenizas'] : []),
-        ])
-      ),
-      storyMissions: Array.isArray(d.storyMissions)
-        ? base.storyMissions.map((bm) => {
-            const found = d.storyMissions.find((x: { id: string }) => x.id === bm.id);
-            return found ? { ...bm, ...found } : bm;
-          })
-        : base.storyMissions,
-      activeStoryMissionId:
-        typeof d.activeStoryMissionId === 'string' ? d.activeStoryMissionId : null,
-      kingdoms: Array.isArray(d.kingdoms)
-        ? base.kingdoms.map((bk) => {
-            const found = d.kingdoms.find((x: { id: string }) => x.id === bk.id);
-            return found ? { ...bk, ...found } : bk;
-          })
-        : base.kingdoms,
-      clan: d.clan
-        ? {
-            ...base.clan,
-            ...d.clan,
-            perks: Array.isArray(d.clan.perks) ? d.clan.perks : [],
-            rivals: Array.isArray(d.clan.rivals)
-              ? base.clan.rivals.map((rc) => {
-                  const found = d.clan.rivals.find((x: { id: string }) => x.id === rc.id);
-                  return found ? { ...rc, ...found } : rc;
-                })
-              : base.clan.rivals,
-          }
-        : base.clan,
-      acquaintances: Array.isArray(d.acquaintances)
-        ? base.acquaintances.map((ba) => {
-            const found = d.acquaintances.find((x: { id: string }) => x.id === ba.id);
-            return found ? { ...ba, ...found } : ba;
-          })
-        : base.acquaintances,
-      family: d.family
-        ? {
-            affection: d.family.affection || {},
-            partnerId: d.family.partnerId || null,
-            married: Boolean(d.family.married),
-            children: Array.isArray(d.family.children) ? d.family.children : [],
-          }
-        : base.family,
-      pillagedVillages: Array.isArray(d.pillagedVillages) ? d.pillagedVillages : [],
-      survivors: Array.isArray(d.survivors)
-        ? base.survivors.map((bs) => {
-            const found = d.survivors.find((x: { id: string }) => x.id === bs.id);
-            return found ? { ...bs, ...found } : bs;
-          })
-        : base.survivors,
-      ownedWeapons:
-        Array.isArray(d.ownedWeapons) && d.ownedWeapons.length > 0
-          ? d.ownedWeapons
-          : base.ownedWeapons,
-      hotbar: Array.isArray(d.hotbar) && d.hotbar.length === 5 ? d.hotbar : base.hotbar,
-      destinyUnlocked: Array.isArray(d.destinyUnlocked)
-        ? Array.from(new Set(['aprendiz_mar', ...d.destinyUnlocked]))
-        : base.destinyUnlocked,
-      achievementsUnlocked: Array.isArray(d.achievementsUnlocked) ? d.achievementsUnlocked : [],
-      discoveredIslands: Array.isArray(d.discoveredIslands) ? d.discoveredIslands : [],
-      swallowedIslands: Array.isArray(d.swallowedIslands) ? d.swallowedIslands : [],
-      deathsUsed: typeof d.deathsUsed === 'number' ? Math.max(0, d.deathsUsed) : 0,
-      extraLivesPurchased:
-        typeof d.extraLivesPurchased === 'number' ? Math.max(0, d.extraLivesPurchased) : 0,
-      tutorialStep: typeof d.tutorialStep === 'number' ? Math.max(0, d.tutorialStep) : 0,
-      tutorialDismissed: Boolean(d.tutorialDismissed),
-      vitals: d.vitals ? { ...base.vitals, ...d.vitals } : base.vitals,
-      npcMoods: d.npcMoods ? { ...base.npcMoods, ...d.npcMoods } : base.npcMoods,
-    };
-    return merged;
+    return mergeLoadedState(d);
   } catch {
     return initState();
   }
+}
+
+export function mergeLoadedState(d: Record<string, any>): PersistentState {
+  const base = initState();
+  const profile = loadOrCreateProfile();
+  const merged: PersistentState = {
+    ...base,
+    ...d,
+    hp: typeof d.hp === 'number' && d.hp > 0 ? d.hp : base.hp,
+    bounty: typeof d.bounty === 'number' ? d.bounty : base.bounty,
+    language: d.language === 'en' ? 'en' : 'es',
+    settings: { ...DEFAULT_GAME_SETTINGS, ...(d.settings || {}) },
+    magicUnlocked: Boolean(d.magicUnlocked),
+    nuclearLabBuilt: Boolean(d.nuclearLabBuilt),
+    nuclearReactorBuilt: Boolean(d.nuclearReactorBuilt),
+    radiationSuitCrafted: Boolean(d.radiationSuitCrafted),
+    warshipNuclearShield: Boolean(d.warshipNuclearShield),
+    shipRadioBuilt: Boolean(d.shipRadioBuilt),
+    warshipPassives: Array.isArray(d.warshipPassives) ? d.warshipPassives : [],
+    radiationExposure: typeof d.radiationExposure === 'number' ? d.radiationExposure : 0,
+    hangoverTimer: typeof d.hangoverTimer === 'number' ? d.hangoverTimer : 0,
+    jammedTimer: typeof d.jammedTimer === 'number' ? d.jammedTimer : 0,
+    playerProfile: {
+      ...profile,
+      ...(d.playerProfile || {}),
+      id: d.playerProfile?.id || profile.id,
+      maxScore: Math.max(profile.maxScore, d.playerProfile?.maxScore || 0),
+    },
+    checkpoint: d.checkpoint || base.checkpoint,
+    newspaper: d.newspaper && Array.isArray(d.newspaper.articles) ? d.newspaper : base.newspaper,
+    pirateBounties: Array.isArray(d.pirateBounties)
+      ? base.pirateBounties.map((pb) => {
+          const found = d.pirateBounties.find((x: { id: string }) => x.id === pb.id);
+          return found ? { ...pb, ...found } : pb;
+        })
+      : base.pirateBounties,
+    resources: { ...base.resources, ...(d.resources || {}) },
+    consumables: { ...base.consumables, ...(d.consumables || {}) },
+    raft: { ...base.raft, ...(d.raft || {}) },
+    stats: { ...base.stats, ...(d.stats || {}) },
+    craftedTech: Array.isArray(d.craftedTech) ? d.craftedTech : [],
+    farmPlots: Array.isArray(d.farmPlots) ? d.farmPlots : [],
+    captiveAnimals: Array.isArray(d.captiveAnimals) ? d.captiveAnimals : [],
+    relicsOwned: Array.isArray(d.relicsOwned) ? d.relicsOwned : [],
+    equippedRelics: Array.isArray(d.equippedRelics) ? d.equippedRelics.slice(0, 3) : [],
+    islandStructures: Array.isArray(d.islandStructures) ? d.islandStructures : [],
+    ageTier:
+      d.ageTier === 2 || d.ageTier === 3 || d.ageTier === 4 ? d.ageTier : 1,
+    islandUnits: Array.isArray(d.islandUnits) ? d.islandUnits : [],
+    aoeUpgrades: Array.isArray(d.aoeUpgrades) ? d.aoeUpgrades : [],
+    hqIslandId: typeof d.hqIslandId === 'string' ? d.hqIslandId : null,
+    hqIslandName: typeof d.hqIslandName === 'string' ? d.hqIslandName : null,
+    donorUnlocked: Boolean(d.donorUnlocked) || loadDonorUnlocked(),
+    donorSkinEnabled:
+      typeof d.donorSkinEnabled === 'boolean'
+        ? d.donorSkinEnabled
+        : Boolean(d.donorUnlocked) || loadDonorUnlocked(),
+    activeTitleId: typeof d.activeTitleId === 'string' ? d.activeTitleId : base.activeTitleId,
+    unlockedTitles: Array.from(
+      new Set([
+        'title_naufrago',
+        ...(Array.isArray(d.unlockedTitles) ? d.unlockedTitles : []),
+        ...(Boolean(d.donorUnlocked) || loadDonorUnlocked() ? ['title_mecenas_cenizas'] : []),
+      ])
+    ),
+    storyMissions: Array.isArray(d.storyMissions)
+      ? base.storyMissions.map((bm) => {
+          const found = d.storyMissions.find((x: { id: string }) => x.id === bm.id);
+          return found ? { ...bm, ...found } : bm;
+        })
+      : base.storyMissions,
+    activeStoryMissionId:
+      typeof d.activeStoryMissionId === 'string' ? d.activeStoryMissionId : null,
+    kingdoms: Array.isArray(d.kingdoms)
+      ? base.kingdoms.map((bk) => {
+          const found = d.kingdoms.find((x: { id: string }) => x.id === bk.id);
+          return found ? { ...bk, ...found } : bk;
+        })
+      : base.kingdoms,
+    clan: d.clan
+      ? {
+          ...base.clan,
+          ...d.clan,
+          perks: Array.isArray(d.clan.perks) ? d.clan.perks : [],
+          rivals: Array.isArray(d.clan.rivals)
+            ? base.clan.rivals.map((rc) => {
+                const found = d.clan.rivals.find((x: { id: string }) => x.id === rc.id);
+                return found ? { ...rc, ...found } : rc;
+              })
+            : base.clan.rivals,
+        }
+      : base.clan,
+    acquaintances: Array.isArray(d.acquaintances)
+      ? base.acquaintances.map((ba) => {
+          const found = d.acquaintances.find((x: { id: string }) => x.id === ba.id);
+          return found ? { ...ba, ...found } : ba;
+        })
+      : base.acquaintances,
+    family: d.family
+      ? {
+          affection: d.family.affection || {},
+          partnerId: d.family.partnerId || null,
+          married: Boolean(d.family.married),
+          children: Array.isArray(d.family.children) ? d.family.children : [],
+        }
+      : base.family,
+    pillagedVillages: Array.isArray(d.pillagedVillages) ? d.pillagedVillages : [],
+    survivors: Array.isArray(d.survivors)
+      ? base.survivors.map((bs) => {
+          const found = d.survivors.find((x: { id: string }) => x.id === bs.id);
+          return found ? { ...bs, ...found } : bs;
+        })
+      : base.survivors,
+    ownedWeapons:
+      Array.isArray(d.ownedWeapons) && d.ownedWeapons.length > 0
+        ? d.ownedWeapons
+        : base.ownedWeapons,
+    hotbar: Array.isArray(d.hotbar) && d.hotbar.length === 5 ? d.hotbar : base.hotbar,
+    destinyUnlocked: Array.isArray(d.destinyUnlocked)
+      ? Array.from(new Set(['aprendiz_mar', ...d.destinyUnlocked]))
+      : base.destinyUnlocked,
+    achievementsUnlocked: Array.isArray(d.achievementsUnlocked) ? d.achievementsUnlocked : [],
+    discoveredIslands: Array.isArray(d.discoveredIslands) ? d.discoveredIslands : [],
+    swallowedIslands: Array.isArray(d.swallowedIslands) ? d.swallowedIslands : [],
+    deathsUsed: typeof d.deathsUsed === 'number' ? Math.max(0, d.deathsUsed) : 0,
+    extraLivesPurchased:
+      typeof d.extraLivesPurchased === 'number' ? Math.max(0, d.extraLivesPurchased) : 0,
+    tutorialStep: typeof d.tutorialStep === 'number' ? Math.max(0, d.tutorialStep) : 0,
+    tutorialDismissed: Boolean(d.tutorialDismissed),
+    vitals: d.vitals ? { ...base.vitals, ...d.vitals } : base.vitals,
+    npcMoods: d.npcMoods ? { ...base.npcMoods, ...d.npcMoods } : base.npcMoods,
+    npcChatHistory:
+      d.npcChatHistory && typeof d.npcChatHistory === 'object' ? d.npcChatHistory : {},
+    discoveredWorldNpcs: Array.isArray(d.discoveredWorldNpcs) ? d.discoveredWorldNpcs : [],
+  };
+  return merged;
 }
 
 export function saveState(state: PersistentState): void {
@@ -496,10 +826,13 @@ export function getRelicTotals(state: PersistentState) {
 }
 
 export function computeRaftMaxHp(state: PersistentState): number {
-  let maxHp = 200 + (state.raft.level - 1) * 90;
+  let maxHp = 200 + (state.raft.level - 1) * 95;
+  if (state.raft.level >= 7) maxHp += 260; // Warship conversion bonus
   if (hasDestiny(state, 'naval_t2')) maxHp += 50;
   if (hasDestiny(state, 'naval_master')) maxHp += 150;
   if (state.clan.founded && state.clan.perks.includes('perk_casco')) maxHp += 80;
+  if (hasWarshipPassive(state, 'wp_blindaje_titanio')) maxHp += 180;
+  if (state.warshipNuclearShield) maxHp += 220;
   return maxHp;
 }
 
@@ -547,9 +880,11 @@ export function computeRangedMultiplier(state: PersistentState): number {
 
 export function computeRaftSpeed(state: PersistentState): number {
   let spd = 145 + (state.raft.engineLevel - 1) * 24;
+  if (state.raft.level >= 7) spd *= 1.18;
   spd *= 1 + getSurvivorLevel(state, 'vega') * 0.1;
   if (hasDestiny(state, 'naval_t2')) spd *= 1.2;
   if (state.craftedTech.includes('tech_ionico')) spd *= 1.3;
+  if (hasWarshipPassive(state, 'wp_turbina_hidro')) spd *= 1.24;
   spd *= 1 + getRelicTotals(state).raftSpeedBonus + getTitleTotals(state).raftSpeedBonus;
   if (state.raft.damagedMode) spd *= 0.35;
   return spd;

@@ -13,8 +13,9 @@ import type {
   WeatherType,
 } from './types';
 
-export function getShipClassName(raftLevel: number): string {
-  if (raftLevel >= 7) return 'Buque de Guerra';
+export function getShipClassName(raftLevel: number, warshipNuclearShield = false): string {
+  if (raftLevel >= 7 && warshipNuclearShield) return 'Buque de Guerra Nuclear Blindado';
+  if (raftLevel >= 7) return 'Buque de Guerra Nuclear';
   if (raftLevel >= 6) return 'Navío de Línea';
   if (raftLevel >= 5) return 'Fragata Blindada';
   if (raftLevel >= 4) return 'Bergantín Explorador';
@@ -24,9 +25,9 @@ export function getShipClassName(raftLevel: number): string {
 }
 
 export const COUNTRY_OPTIONS: Array<{ code: string; name: string }> = [
+  { code: 'CO', name: 'Colombia' },
   { code: 'MX', name: 'México' },
   { code: 'ES', name: 'España' },
-  { code: 'CO', name: 'Colombia' },
   { code: 'AR', name: 'Argentina' },
   { code: 'CL', name: 'Chile' },
   { code: 'PE', name: 'Perú' },
@@ -44,10 +45,10 @@ export const INITIAL_PIRATE_BOUNTIES: PirateBounty[] = [
     name: 'Vane "Diente de Tiburón"',
     epithet: 'Saqueador de Arrecifes',
     dangerLevel: 2,
-    rewardOro: 10,
-    rewardFame: 110,
-    bountyValue: 18000000,
-    description: 'Asalta barcos mercantes cerca de islas de pradera y desierto.',
+    rewardOro: 12,
+    rewardFame: 140,
+    bountyValue: 22000000,
+    description: 'Asalta barcos mercantes con su flotilla en los arrecifes del este.',
     claimed: false,
     active: false,
   },
@@ -56,10 +57,10 @@ export const INITIAL_PIRATE_BOUNTIES: PirateBounty[] = [
     name: 'Calico "La Viuda"',
     epithet: 'Corsaria del Humo',
     dangerLevel: 3,
-    rewardOro: 14,
-    rewardFame: 150,
-    bountyValue: 42000000,
-    description: 'Famosa por abordar balsas en plena niebla marina.',
+    rewardOro: 16,
+    rewardFame: 190,
+    bountyValue: 48000000,
+    description: 'Navega con tripulación de abordaje oculta entre bancos de niebla.',
     claimed: false,
     active: false,
   },
@@ -68,10 +69,10 @@ export const INITIAL_PIRATE_BOUNTIES: PirateBounty[] = [
     name: 'Capitán Barbarroja',
     epithet: 'Martillo Escarlata',
     dangerLevel: 4,
-    rewardOro: 18,
-    rewardFame: 210,
-    bountyValue: 85000000,
-    description: 'Comandante de flotillas rojas y saqueador de colonias costeñas.',
+    rewardOro: 22,
+    rewardFame: 260,
+    bountyValue: 95000000,
+    description: 'Comandante de flotillas rojas escoltado por artilleros de élite.',
     claimed: false,
     active: false,
   },
@@ -80,10 +81,10 @@ export const INITIAL_PIRATE_BOUNTIES: PirateBounty[] = [
     name: 'Malak "Barba de Hierro"',
     epithet: 'Señor de la Hermandad',
     dangerLevel: 5,
-    rewardOro: 26,
-    rewardFame: 320,
-    bountyValue: 165000000,
-    description: 'Temido jefe pirata blindado. Su captura da prestigio mundial.',
+    rewardOro: 30,
+    rewardFame: 380,
+    bountyValue: 185000000,
+    description: 'Temido jefe pirata blindado. Siempre viaja rodeado de 4 corsarios.',
     claimed: false,
     active: false,
   },
@@ -92,10 +93,10 @@ export const INITIAL_PIRATE_BOUNTIES: PirateBounty[] = [
     name: 'Kuro "Sombra Abisal"',
     epithet: 'Rey de Aguas Peligrosas',
     dangerLevel: 6,
-    rewardOro: 36,
-    rewardFame: 450,
-    bountyValue: 320000000,
-    description: 'Se rumora que navega junto a Leviatanes buscando reliquias SZS.',
+    rewardOro: 44,
+    rewardFame: 560,
+    bountyValue: 360000000,
+    description: 'Navega en aguas profundas junto a hackers corsarios y leviatanes.',
     claimed: false,
     active: false,
   },
@@ -117,7 +118,7 @@ export function generateDailyNewsArticles(
     : warKingdom
       ? `¡Tambores de guerra en los Siete Mares contra ${playerName}!`
       : state.raft.level >= 7
-        ? `¡Avistan un colosal Buque de Guerra capitaneado por ${playerName}!`
+        ? `¡Avistan un colosal ${getShipClassName(state.raft.level, state.warshipNuclearShield)} capitaneado por ${playerName}!`
         : state.stats.villagesPillaged > 0
           ? `¡Alerta marítima! La recompensa por ${playerTag}${playerName} sube a ${state.bounty.toLocaleString()} B`
           : `¡Nuevo navegante ${playerTag}${playerName} surca el horizonte en el Día ${day}!`;
@@ -126,15 +127,15 @@ export function generateDailyNewsArticles(
     ? `Fuentes del Correo del Horizonte confirman que la flota de ${playerName} dominó la última Guerra de Islas. Las rutas comerciales cambian de manos.`
     : state.bounty >= 50000000
       ? `Con ${state.stats.banditKills} piratas abatidos y ${state.stats.islandsVisited} islas cartografiadas, ${playerName} ya figura entre los capitanes más temidos del océano.`
-      : `La Marina del Mundo Antiguo mantiene vigilancia sobre ${playerTag}${playerName} (${getShipClassName(state.raft.level)} Nv.${state.raft.level}).`;
+      : `La Marina del Mundo Antiguo mantiene vigilancia sobre ${playerTag}${playerName} (${getShipClassName(state.raft.level, state.warshipNuclearShield)} Nv.${state.raft.level}).`;
 
   const weatherNews: Record<WeatherType, string> = {
-    despejado: 'Cielos despejados favorecen expediciones hacia islas mineras y ruinas antiguas.',
+    despejado: 'Cielos despejados favorecen expediciones hacia islas mineras, zonas zombis y santuarios.',
     brisa: 'Vientos alisios impulsan las velas un +18% más rápido en todo el cuadrante.',
     lluvia: 'Lluvias cálidas riegan cultivos en balsas e islas acelerando cosechas.',
-    tormenta: '¡Precaución! Tormenta eléctrica en curso; relámpagos iluminan Aguas Peligrosas.',
-    niebla: 'Banco de niebla espesa reduce la visibilidad; ideal para emboscadas piratas.',
-    oleaje: 'Fuerte marejada frena la navegación; refuerza el casco antes de zarpar.',
+    tormenta: '¡Precaución! Tormenta eléctrica en curso; busca una Zona Segura si el casco cruje.',
+    niebla: 'Banco de niebla espesa reduce la visibilidad; hackers y corsarios aprovechan para emboscar.',
+    oleaje: 'Fuerte marejada frena la navegación; refuerza el casco y los muros de tu isla.',
   };
 
   return [
@@ -153,14 +154,14 @@ export function generateDailyNewsArticles(
         : '¡Todos los grandes piratas del sector han sido capturados!',
       body: activeBounty
         ? `${activeBounty.description} Recompensa oficial: +${activeBounty.rewardOro} Oro y +${activeBounty.rewardFame} Fama.`
-        : 'La paz temporal reina en los muelles principales, aunque los Leviatanes siguen acechando.',
+        : 'La paz temporal reina en los muelles principales, aunque los Leviatanes Viejos siguen acechando.',
       day,
     },
     {
       id: `news_${day}_3`,
       category: 'MUNDO',
-      headline: 'Ruinas abandonadas y puestos pesqueros emergen tras la marea',
-      body: `Exploradores reportan faros antiguos, barcos encallados y búnkeres con Piezas Tech y Reliquias. Islas visitadas hoy: ${state.stats.islandsVisited}.`,
+      headline: 'Señales de radio, fragmentos celestiales y brotes zombi en altamar',
+      body: `Antenas detectan Fragmentos Nucleares y Celestiales en islas lejanas, mientras hackers marinos sabotean barcos sin defensa. Islas visitadas: ${state.stats.islandsVisited}.`,
       day,
     },
     {
@@ -282,7 +283,7 @@ export const RIVAL_CLANS_CATALOG: RivalClanState[] = [
     relation: -15,
     atWar: false,
     conquered: false,
-    specialty: 'Torretas eléctricas y piezas tecnológicas.',
+    specialty: 'Torretas eléctricas, antenas de radio y piezas tecnológicas.',
   },
   {
     id: 'clan_ceniza',
@@ -329,30 +330,52 @@ export const TITLES_CATALOG: TitleDef[] = [
   },
   {
     id: 'title_capitan_guerra',
-    name: 'Capitán del Buque de Guerra',
+    name: 'Almirante del Buque Nuclear',
     tier: 'epico',
-    requirementText: 'Mejora tu navío al Nivel 5 o más.',
-    bonusText: '+12% velocidad naval · +25 HP',
-    raftSpeedBonus: 0.12,
-    hpBonus: 25,
+    requirementText: 'Transforma tu balsa en Buque de Guerra Nuclear (Nivel 7+).',
+    bonusText: '+14% velocidad naval · +40 HP',
+    raftSpeedBonus: 0.14,
+    hpBonus: 40,
   },
   {
     id: 'title_azote_corsarios',
-    name: 'Azote Épico de Corsarios',
+    name: 'Verdugo de la Hermandad Roja',
     tier: 'epico',
-    requirementText: 'Derrota a 15 bandidos o piratas.',
-    bonusText: '+14% daño cuerpo a cuerpo',
-    meleeBonus: 0.14,
+    requirementText: 'Derrota a 120 piratas, hackers y corsarios.',
+    bonusText: '+18% daño cuerpo a cuerpo · +25 HP',
+    meleeBonus: 0.18,
+    hpBonus: 25,
   },
   {
     id: 'title_conquistador_islas',
-    name: 'Conquistador de Reinos',
+    name: 'Emperador Demencial de Reinos',
     tier: 'legendario',
-    requirementText: 'Gana una Guerra de Islas o de Clan.',
-    bonusText: '+20% daño total · +40 HP',
-    meleeBonus: 0.2,
-    rangedBonus: 0.2,
-    hpBonus: 40,
+    requirementText: 'Gana 10 Guerras de Flota o de Islas.',
+    bonusText: '+24% daño total · +55 HP',
+    meleeBonus: 0.24,
+    rangedBonus: 0.24,
+    hpBonus: 55,
+  },
+  {
+    id: 'title_matador_ancianos',
+    name: 'Cazador de Leviatanes Viejos',
+    tier: 'legendario',
+    requirementText: 'Abate 3 Leviatanes Viejos colosales con tu Buque Nuclear.',
+    bonusText: '+35% daño total · +90 HP · +15% vel.',
+    meleeBonus: 0.35,
+    rangedBonus: 0.35,
+    hpBonus: 90,
+    raftSpeedBonus: 0.15,
+  },
+  {
+    id: 'title_forjador_celestial',
+    name: 'Portador de la Forja Celestial',
+    tier: 'legendario',
+    requirementText: 'Forja 2 armas Celestiales con Fragmentos Celestiales.',
+    bonusText: '+28% daño total · +45 HP',
+    meleeBonus: 0.28,
+    rangedBonus: 0.28,
+    hpBonus: 45,
   },
   {
     id: 'title_leyenda_szs',
@@ -378,7 +401,7 @@ export const TITLES_CATALOG: TitleDef[] = [
     id: 'title_mecenas_cenizas',
     name: 'Mecenas del Horizonte',
     tier: 'legendario',
-    requirementText: 'Exclusivo para donadores vía Bre-B Colombia (@3155552964).',
+    requirementText: 'Exclusivo para donadores vía Bre-B / Nequi (@3155552964).',
     bonusText: '+25 HP · +12% daño total · +12% vel. naval · Skins Doradas',
     hpBonus: 25,
     meleeBonus: 0.12,
@@ -547,7 +570,7 @@ export const CHILD_TRAITS: string[] = [
 
 export const CHILD_QUOTES: string[] = [
   '¡Papá/Mamá, pesqué una bota pirata del tamaño de mi cabeza!',
-  '¡Cuando crezca quiero mandar el Buque de Guerra!',
+  '¡Cuando crezca quiero mandar el Buque de Guerra Nuclear!',
   '¡El tío Kiko casi incendia la vela otra vez, jeje!',
   '¡Hoy aprendí a hacer nudos marineros sin enredarme los dedos!',
 ];

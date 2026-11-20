@@ -37,7 +37,7 @@ export function TutorialGuideCard({
   onOpenDrawerIslands,
   onDismiss,
 }: TutorialGuideCardProps) {
-  const [minimized, setMinimized] = useState(false);
+  const [minimized, setMinimized] = useState(true);
 
   if (state.tutorialDismissed) return null;
 

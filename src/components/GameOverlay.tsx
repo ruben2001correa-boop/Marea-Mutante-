@@ -1,5 +1,16 @@
-import { Award, Heart, ShieldAlert } from 'lucide-react';
+import {
+  Award,
+  BookmarkCheck,
+  Heart,
+  Play,
+  RotateCcw,
+  ShieldAlert,
+  Skull,
+  Sliders,
+  UserCheck,
+} from 'lucide-react';
 import { MAX_FREE_DEATHS, getRemainingLives } from '../game/constants';
+import { t } from '../game/i18n';
 import type { GameMode, PersistentState } from '../game/types';
 import { InstallAppButton } from './InstallAppModal';
 
@@ -11,6 +22,9 @@ interface GameOverlayProps {
   onContinue: () => void;
   onResume: () => void;
   onRestart: () => void;
+  onSaveGame?: () => void;
+  onOpenSettings?: () => void;
+  onOpenAccount?: () => void;
   onRespawnCheckpoint: () => void;
   onBuyExtraLifeBreB: () => void;
   onOpenDonations?: () => void;
@@ -26,6 +40,9 @@ export function GameOverlay({
   onContinue,
   onResume,
   onRestart,
+  onSaveGame,
+  onOpenSettings,
+  onOpenAccount,
   onRespawnCheckpoint,
   onBuyExtraLifeBreB,
   onOpenDonations,
@@ -34,88 +51,126 @@ export function GameOverlay({
 }: GameOverlayProps) {
   if (mode === 'PLAYING') return null;
 
+  const lang = state.language || 'es';
   const hasWarehouse = state.islandStructures.some((s) => s.kind === 'warehouse');
   const livesLeft = getRemainingLives(state);
   const totalLives = MAX_FREE_DEATHS + (state.extraLivesPurchased || 0);
 
   return (
-    <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#030d17]/75 backdrop-blur-xs p-4">
+    <div
+      onPointerDown={(e) => e.stopPropagation()}
+      className="fixed inset-0 z-40 flex items-center justify-center bg-[#030b14]/86 backdrop-blur-sm p-3 sm:p-5 safe-p-all overflow-y-auto"
+    >
       {mode === 'TITLE_MENU' && (
-        <div className="w-full max-w-lg rounded-xl bg-[#0a1d2e] border border-[#254a6b] p-6 shadow-2xl">
-          <div className="text-xs font-semibold text-sky-300 mb-1">
-            El Océano de las Cenizas Saladas · Historia desde el Segundo 0
+        <div className="w-full max-w-xl rounded-2xl bg-[#081726] border border-[#264d72] p-5 sm:p-6 shadow-2xl space-y-4 my-auto">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-amber-300 mb-1">
+                <Skull className="w-3.5 h-3.5" />
+                <span>{t(lang, 'underworldMenu')}</span>
+              </div>
+              <h2 className="font-display text-2xl sm:text-3xl font-extrabold text-slate-50">
+                {t(lang, 'gameTitle')}
+              </h2>
+              <p className="text-xs sm:text-sm text-sky-200/90 mt-0.5">
+                {t(lang, 'subtitle')}
+              </p>
+            </div>
+            <div className="px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-400/40 text-xs font-mono-num font-bold text-emerald-300 shrink-0">
+              ♥ {livesLeft}/{totalLives}
+            </div>
           </div>
-          <h2 className="font-display text-2xl sm:text-3xl font-extrabold text-slate-50">
-            Marea Mutante
-          </h2>
-          <p className="text-sm text-slate-300 mt-2 leading-relaxed">
-            Inicia con la historia y la Misión 1 guiada, desafía Cuarteles Piratas (Rango F a SSS),
-            construye pueblos e imperios en islas y sobrevive con tus 5 vidas.
+
+          <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+            Despierta nadando en el mar sin balsa, rescata tu destino junto a la Vice-Capitana Vega,
+            forja armas Épicas/Legendarias/Divinas con Armeros y Forjadores, levanta imperios AoE y
+            comanda tu Buque de Guerra Nuclear.
           </p>
 
-          <div className="mt-4 pt-3 border-t border-[#183750] grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-slate-300">
-            <div><b className="text-amber-300">Mover / Navegar:</b> WASD / Joystick</div>
-            <div><b className="text-amber-300">Atacar / Minar:</b> Clic / Espacio</div>
-            <div><b className="text-amber-300">Tomar Timón:</b> F / Botón Timón</div>
-            <div><b className="text-amber-300">Armas 1-5:</b> Teclas 1-5</div>
-            <div><b className="text-amber-300">Esquivar:</b> Shift</div>
-            <div><b className="text-amber-300">Menú (Pausa auto):</b> Tab</div>
-          </div>
-
-          <div className="mt-5 flex flex-wrap gap-3">
-            {hasSave ? (
-              <>
-                <button
-                  type="button"
-                  onClick={onContinue}
-                  className="flex-1 px-4 py-2.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-sm cursor-pointer whitespace-nowrap"
-                >
-                  Continuar aventura
-                </button>
-                <button
-                  type="button"
-                  onClick={onStartNew}
-                  className="px-4 py-2.5 rounded-lg bg-[#133047] hover:bg-[#1a405e] border border-[#2c5a80] text-slate-100 font-semibold text-sm cursor-pointer whitespace-nowrap"
-                >
-                  Nueva partida
-                </button>
-              </>
-            ) : (
+          {/* Main Underworld Menu Actions */}
+          <div className="space-y-2.5">
+            {hasSave && (
               <button
                 type="button"
-                onClick={onStartNew}
-                className="w-full px-4 py-2.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-sm cursor-pointer whitespace-nowrap"
+                onClick={onContinue}
+                className="w-full min-h-[48px] px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-sm inline-flex items-center justify-center gap-2 cursor-pointer shadow-lg"
               >
-                Zarpar a la aventura
+                <Play className="w-4 h-4" />
+                <span>
+                  {t(lang, 'continueGame')} (Día {state.dayCount} · Nv.{state.level})
+                </span>
               </button>
             )}
+
+            <button
+              type="button"
+              onClick={onStartNew}
+              className={`w-full min-h-[48px] px-4 py-2.5 rounded-xl font-extrabold text-sm inline-flex items-center justify-center gap-2 cursor-pointer ${
+                hasSave
+                  ? 'bg-[#122e47] hover:bg-[#194061] border border-[#2d5e88] text-slate-100'
+                  : 'bg-amber-400 hover:bg-amber-300 text-slate-950 shadow-lg'
+              }`}
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>{t(lang, 'newGame')}</span>
+            </button>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {onOpenAccount && (
+                <button
+                  type="button"
+                  onClick={onOpenAccount}
+                  className="min-h-[44px] px-3 py-2 rounded-xl bg-[#0d2338] hover:bg-[#143452] border border-[#244c70] text-sky-200 text-xs sm:text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <UserCheck className="w-4 h-4 text-sky-300" />
+                  <span>{t(lang, 'account')}</span>
+                </button>
+              )}
+              {onOpenSettings && (
+                <button
+                  type="button"
+                  onClick={onOpenSettings}
+                  className="min-h-[44px] px-3 py-2 rounded-xl bg-[#0d2338] hover:bg-[#143452] border border-[#244c70] text-slate-100 text-xs sm:text-sm font-bold inline-flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Sliders className="w-4 h-4 text-amber-300" />
+                  <span>{t(lang, 'settings')}</span>
+                </button>
+              )}
+            </div>
           </div>
 
-          <div className="mt-4 pt-3 border-t border-[#183750] flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="pt-3 border-t border-[#183750] grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-300">
+            <div><b className="text-amber-300">Mover:</b> WASD / Joystick / Mando</div>
+            <div><b className="text-amber-300">Atacar:</b> Clic / Espacio / Auto-Mira</div>
+            <div><b className="text-amber-300">Timón / NPC:</b> F / G</div>
+            <div><b className="text-amber-300">Menú Lateral:</b> Tab</div>
+          </div>
+
+          <div className="pt-3 border-t border-[#183750] flex flex-wrap items-center justify-between gap-2 text-xs">
             <div className="text-slate-300">
               <span className="text-slate-400">Autor:</span>{' '}
               <b className="text-amber-300">Rubén Darío Correa Cuellar</b>
             </div>
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-wrap items-center gap-2">
               <InstallAppButton onOpenGuide={onOpenInstall} />
               {onOpenCredits && (
                 <button
                   type="button"
                   onClick={onOpenCredits}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-400/15 hover:bg-amber-400/25 border border-amber-400/45 text-amber-200 font-semibold text-[11px] cursor-pointer"
+                  className="min-h-[40px] inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-400/15 hover:bg-amber-400/25 border border-amber-400/45 text-amber-200 font-semibold text-xs cursor-pointer"
                 >
                   <Award className="w-3.5 h-3.5 text-amber-300" />
-                  <span>Créditos</span>
+                  <span>{t(lang, 'credits')}</span>
                 </button>
               )}
               {onOpenDonations && (
                 <button
                   type="button"
                   onClick={onOpenDonations}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-400/40 text-rose-200 font-semibold text-[11px] cursor-pointer"
+                  className="min-h-[40px] inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-400/40 text-rose-200 font-semibold text-xs cursor-pointer"
                 >
                   <Heart className="w-3.5 h-3.5 text-rose-400" />
-                  <span>Donar Bre-B (@3155552964)</span>
+                  <span>Donar (@3155552964)</span>
                 </button>
               )}
             </div>
@@ -124,65 +179,103 @@ export function GameOverlay({
       )}
 
       {mode === 'PAUSED' && (
-        <div className="w-full max-w-sm rounded-xl bg-[#0a1d2e] border border-[#254a6b] p-6 shadow-2xl text-center">
-          <h2 className="font-display text-2xl font-bold text-slate-50">Juego en pausa</h2>
-          <p className="text-xs text-slate-300 mt-1.5">
-            Nivel {state.level} · Islas descubiertas: {state.stats.islandsVisited}
-          </p>
-          <div className="mt-5 flex items-center justify-center gap-3">
+        <div className="w-full max-w-md rounded-2xl bg-[#081726] border border-[#264d72] p-5 sm:p-6 shadow-2xl text-center space-y-4">
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-wider text-amber-300 mb-1">
+              {t(lang, 'underworldMenu')} · Pausa
+            </div>
+            <h2 className="font-display text-2xl font-bold text-slate-50">Juego en Pausa</h2>
+            <p className="text-xs text-slate-300 mt-1">
+              Nivel {state.level} · Día {state.dayCount} · Islas: {state.stats.islandsVisited}
+            </p>
+          </div>
+
+          <div className="space-y-2.5">
             <button
               type="button"
               onClick={onResume}
-              className="px-5 py-2.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-sm cursor-pointer"
+              className="w-full min-h-[48px] px-5 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-extrabold text-sm inline-flex items-center justify-center gap-2 cursor-pointer"
             >
-              Reanudar
+              <Play className="w-4 h-4" />
+              <span>{t(lang, 'resumeGame')}</span>
             </button>
+
+            {onSaveGame && (
+              <button
+                type="button"
+                onClick={onSaveGame}
+                className="w-full min-h-[44px] px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm inline-flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <BookmarkCheck className="w-4 h-4" />
+                <span>{t(lang, 'saveGame')}</span>
+              </button>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
+              {onOpenSettings && (
+                <button
+                  type="button"
+                  onClick={onOpenSettings}
+                  className="min-h-[44px] px-3 py-2 rounded-xl bg-[#102940] hover:bg-[#173b5c] border border-[#244c70] text-slate-100 font-bold text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Sliders className="w-4 h-4 text-amber-300" />
+                  <span>{t(lang, 'settings')}</span>
+                </button>
+              )}
+              {onOpenAccount && (
+                <button
+                  type="button"
+                  onClick={onOpenAccount}
+                  className="min-h-[44px] px-3 py-2 rounded-xl bg-[#102940] hover:bg-[#173b5c] border border-[#244c70] text-sky-200 font-bold text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <UserCheck className="w-4 h-4 text-sky-300" />
+                  <span>{t(lang, 'account')}</span>
+                </button>
+              )}
+            </div>
+
             <button
               type="button"
               onClick={onRestart}
-              className="px-4 py-2.5 rounded-lg bg-[#133047] hover:bg-[#1a405e] border border-[#2c5a80] text-slate-100 font-semibold text-sm cursor-pointer"
+              className="w-full min-h-[44px] px-4 py-2 rounded-xl bg-[#133047] hover:bg-[#1a405e] border border-[#2c5a80] text-slate-200 font-semibold text-xs cursor-pointer"
             >
-              Reiniciar
+              {t(lang, 'newGame')}
             </button>
           </div>
-          <div className="mt-4 pt-3 border-t border-[#183750] flex flex-col items-center gap-2 text-[11px] text-slate-300">
-            <div>
-              Autor del Juego: <b className="text-amber-300">Rubén Darío Correa Cuellar</b>
-            </div>
-            <div className="flex flex-wrap items-center justify-center gap-2">
-              <InstallAppButton onOpenGuide={onOpenInstall} />
-              {onOpenCredits && (
-                <button
-                  type="button"
-                  onClick={onOpenCredits}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-400/15 hover:bg-amber-400/25 border border-amber-400/45 text-amber-200 font-semibold cursor-pointer"
-                >
-                  <Award className="w-3.5 h-3.5 text-amber-300" />
-                  <span>Créditos</span>
-                </button>
-              )}
-              {onOpenDonations && (
-                <button
-                  type="button"
-                  onClick={onOpenDonations}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-400/40 text-rose-200 font-semibold cursor-pointer"
-                >
-                  <Heart className="w-3.5 h-3.5 text-rose-400" />
-                  <span>Apoyar vía Bre-B Colombia</span>
-                </button>
-              )}
-            </div>
+
+          <div className="pt-3 border-t border-[#183750] flex flex-wrap items-center justify-center gap-2 text-xs text-slate-300">
+            <InstallAppButton onOpenGuide={onOpenInstall} />
+            {onOpenCredits && (
+              <button
+                type="button"
+                onClick={onOpenCredits}
+                className="min-h-[38px] inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-400/15 border border-amber-400/45 text-amber-200 font-semibold cursor-pointer"
+              >
+                <Award className="w-3.5 h-3.5 text-amber-300" />
+                <span>Créditos</span>
+              </button>
+            )}
+            {onOpenDonations && (
+              <button
+                type="button"
+                onClick={onOpenDonations}
+                className="min-h-[38px] inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-500/15 border border-rose-400/40 text-rose-200 font-semibold cursor-pointer"
+              >
+                <Heart className="w-3.5 h-3.5 text-rose-400" />
+                <span>Donar Bre-B</span>
+              </button>
+            )}
           </div>
         </div>
       )}
 
       {mode === 'GAME_OVER' && (
-        <div className="w-full max-w-md rounded-xl bg-[#0a1d2e] border border-rose-500/50 p-6 shadow-2xl text-center">
+        <div className="w-full max-w-md rounded-2xl bg-[#0a1d2e] border border-rose-500/50 p-6 shadow-2xl text-center">
           <div className="text-xs font-semibold text-rose-400 mb-1">
             Has caído en combate · Muertes: {state.deathsUsed}/{totalLives}
           </div>
           <h2 className="font-display text-2xl font-bold text-slate-50">
-            {livesLeft > 0 ? 'Rescate en Punto de Control' : 'Límite de 5 Muertes Alcanzado'}
+            {livesLeft > 0 ? 'Rescate en Punto de Control' : 'Límite de 5 Vidas Alcanzado'}
           </h2>
 
           <div className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#071522] border border-[#1d3e5c] text-xs font-bold">
@@ -190,7 +283,7 @@ export function GameOverlay({
             <span className={livesLeft > 0 ? 'text-emerald-300' : 'text-rose-300'}>
               {livesLeft > 0
                 ? `Vidas restantes: ${livesLeft} de ${totalLives}`
-                : '0 vidas restantes — Requiere pago de Vida Extra'}
+                : '0 vidas restantes — Requiere pago verificado de Vida Extra'}
             </span>
           </div>
 
@@ -201,20 +294,19 @@ export function GameOverlay({
               </div>
               <div className="text-rose-300">
                 Penalización al reaparecer: <b>-1 Nivel</b> (mín. 1), <b>XP → 0</b> y{' '}
-                <b>-{hasWarehouse ? '20%' : '35%'} recursos</b>
-                {hasWarehouse ? ' (Almacén protege parte del botín)' : ''}.
+                <b>-{hasWarehouse ? '20%' : '35%'} recursos</b>.
               </div>
             </div>
           ) : (
             <div className="mt-3 rounded-lg bg-rose-950/45 border border-rose-500/45 p-3 text-left text-xs space-y-1.5">
               <div className="flex items-center gap-1.5 text-rose-300 font-bold">
                 <ShieldAlert className="w-4 h-4 shrink-0" />
-                <span>Ya moriste {state.deathsUsed} veces en esta partida</span>
+                <span>Ya consumiste tus {totalLives} vidas en esta partida</span>
               </div>
               <p className="text-slate-200 leading-relaxed">
-                Solo puedes morir 5 veces gratis por partida. Para seguir con tu barco, imperios y
-                progreso actual, adquiere una <b className="text-amber-300">Vida Extra vía Bre-B (@3155552964)</b>{' '}
-                o comienza una nueva partida desde cero.
+                Para revivir con tu barco, imperios y armas actuales, adquiere una{' '}
+                <b className="text-amber-300">Vida Extra vía Nequi / Bre-B (@3155552964)</b> (se
+                desbloquea tras verificar el pago) o inicia una nueva partida.
               </p>
             </div>
           )}
@@ -239,7 +331,7 @@ export function GameOverlay({
               <button
                 type="button"
                 onClick={onRespawnCheckpoint}
-                className="flex-1 px-4 py-2.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-sm cursor-pointer"
+                className="flex-1 min-h-[48px] px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-sm cursor-pointer"
               >
                 Reaparecer en Punto de Control
               </button>
@@ -247,16 +339,16 @@ export function GameOverlay({
               <button
                 type="button"
                 onClick={onBuyExtraLifeBreB}
-                className="flex-1 px-4 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm cursor-pointer inline-flex items-center justify-center gap-1.5"
+                className="flex-1 min-h-[48px] px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-sm cursor-pointer inline-flex items-center justify-center gap-1.5"
               >
                 <Heart className="w-4 h-4" />
-                <span>Pagar Vida Extra (Bre-B)</span>
+                <span>Pagar Vida Extra (Nequi / Bre-B)</span>
               </button>
             )}
             <button
               type="button"
               onClick={onRestart}
-              className="px-4 py-2.5 rounded-lg bg-[#133047] hover:bg-[#1a405e] border border-[#2c5a80] text-slate-100 font-semibold text-sm cursor-pointer"
+              className="min-h-[48px] px-4 py-2.5 rounded-xl bg-[#133047] hover:bg-[#1a405e] border border-[#2c5a80] text-slate-100 font-semibold text-sm cursor-pointer"
             >
               Nueva partida
             </button>
@@ -269,4 +361,3 @@ export function GameOverlay({
     </div>
   );
 }
-

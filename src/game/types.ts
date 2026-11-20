@@ -13,7 +13,7 @@ export type DrawerTab =
   | 'relics'
   | 'achievements';
 
-export type Rarity = 'comun' | 'raro' | 'epico' | 'legendario';
+export type Rarity = 'comun' | 'raro' | 'epico' | 'legendario' | 'divino';
 
 export type RelicRank = 'F' | 'E' | 'D' | 'C' | 'B' | 'A' | 'S' | 'SS' | 'SZS';
 
@@ -34,7 +34,36 @@ export interface IntroCutsceneState {
 
 export type RandomEventKind = 'pirate_hunt' | 'fish_frenzy' | 'guerrilla_war' | 'salvage_surge';
 
-export type StoryMissionId = 'boya_nombres' | 'pan_tormenta' | 'canto_casco' | 'deuda_tierra';
+export type StoryMissionId = string;
+
+export type MissionCategory =
+  | 'historia'
+  | 'imperio'
+  | 'caza'
+  | 'piratas'
+  | 'zombis'
+  | 'hackers'
+  | 'rescate'
+  | 'comercio';
+
+export type MissionEventKind =
+  | 'convoy_buoy'
+  | 'pirate_blockade'
+  | 'zombie_nest'
+  | 'hacker_relay'
+  | 'siege_village'
+  | 'leviathan_lair'
+  | 'wreck_field';
+
+export type MissionGoalType =
+  | 'kill'
+  | 'visit'
+  | 'build'
+  | 'collect'
+  | 'explore'
+  | 'trade'
+  | 'clear_camp'
+  | 'age';
 
 export type StoryMissionStatus =
   | 'available'
@@ -51,6 +80,7 @@ export interface StoryMissionProgress {
   choiceLabel?: string;
   markerX?: number;
   markerY?: number;
+  eventKind?: MissionEventKind;
 }
 
 export type WeaponCategory =
@@ -59,6 +89,7 @@ export type WeaponCategory =
   | 'arco'
   | 'fuego'
   | 'bomba'
+  | 'magia'
   | 'herramienta';
 
 export interface ResourceBag {
@@ -74,6 +105,12 @@ export interface ResourceBag {
   tit: number;
   cri: number;
   tec: number;
+  nuc_frag: number;
+  cel_frag: number;
+  alc: number;
+  frag_epico: number;
+  frag_legendario: number;
+  frag_divino: number;
 }
 
 export type ResourceKey = keyof ResourceBag;
@@ -95,6 +132,9 @@ export interface WeaponDef {
   mineBonus?: number;
   healAmount?: number;
   isNuclear?: boolean;
+  isCelestial?: boolean;
+  isMagic?: boolean;
+  craftedByNpc?: 'armero' | 'forjador' | 'both';
   description: string;
   craftCost?: Partial<ResourceBag>;
 }
@@ -104,6 +144,15 @@ export interface TechPieceDef {
   name: string;
   description: string;
   bonusText: string;
+  cost: Partial<ResourceBag>;
+}
+
+export interface WarshipPassiveDef {
+  id: string;
+  name: string;
+  description: string;
+  bonusText: string;
+  minRaftLevel: number;
   cost: Partial<ResourceBag>;
 }
 
@@ -168,21 +217,29 @@ export interface DestinyNodeDef {
   description: string;
 }
 
+export type AchievementStatKey =
+  | 'kills'
+  | 'banditKills'
+  | 'islandsVisited'
+  | 'chestsOpened'
+  | 'weaponsOwned'
+  | 'warsWon'
+  | 'destinyUnlocked'
+  | 'level'
+  | 'elderLeviathansKilled'
+  | 'celestialForged'
+  | 'nuclearShieldReady'
+  | 'dayCount'
+  | 'bountyMillions'
+  | 'radiosBuilt';
+
 export interface AchievementDef {
   id: string;
   title: string;
   description: string;
   rewardText: string;
   target: number;
-  statKey:
-    | 'kills'
-    | 'banditKills'
-    | 'islandsVisited'
-    | 'chestsOpened'
-    | 'weaponsOwned'
-    | 'warsWon'
-    | 'destinyUnlocked'
-    | 'level';
+  statKey: AchievementStatKey;
 }
 
 export interface TitleDef {
@@ -255,12 +312,23 @@ export interface RomanceCandidateDef {
   quotes: string[];
 }
 
+export interface ChildMissionState {
+  targetIslandId?: string;
+  targetX: number;
+  targetY: number;
+  targetName: string;
+  kind: 'explore' | 'trade' | 'raid';
+  remainingSec: number;
+  totalSec: number;
+}
+
 export interface ChildState {
   id: string;
   name: string;
   stage: 'bebé' | 'grumete' | 'oficial';
   bornDay: number;
   trait: string;
+  activeMission?: ChildMissionState | null;
 }
 
 export interface FamilyState {
@@ -278,7 +346,8 @@ export type IslandBiome =
   | 'chatarra'
   | 'pirata'
   | 'pradera'
-  | 'abisal';
+  | 'abisal'
+  | 'zombie';
 
 export interface IslandNode {
   id: string;
@@ -298,7 +367,9 @@ export interface IslandNode {
     | 'abandoned_ruin'
     | 'abandoned_lighthouse'
     | 'shipwreck'
-    | 'abandoned_bunker';
+    | 'abandoned_bunker'
+    | 'radio_tower'
+    | 'zombie_grave';
   x: number;
   y: number;
   hp: number;
@@ -307,6 +378,27 @@ export interface IslandNode {
   villageName?: string;
   kingdomId?: string;
   pirateRank?: DangerRank;
+}
+
+export type AgeTier = 1 | 2 | 3 | 4;
+
+export interface IslandUnit {
+  id: string;
+  islandId: string;
+  kind: 'villager' | 'guard' | 'patrol_ship';
+  role: string;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  hp: number;
+  maxHp: number;
+  targetX: number;
+  targetY: number;
+  gatherKind?: ResourceKey;
+  carry?: number;
+  gaitPhase: number;
+  cd: number;
 }
 
 export interface IslandStructure {
@@ -319,13 +411,44 @@ export interface IslandStructure {
     | 'hq'
     | 'warehouse'
     | 'nuclear_bunker'
-    | 'settlement';
+    | 'settlement'
+    | 'wall'
+    | 'radio_antenna'
+    | 'nuclear_lab'
+    | 'nuclear_reactor'
+    | 'distillery'
+    | 'patrol_dock'
+    | 'house'
+    | 'barracks'
+    | 'mill'
+    | 'blacksmith'
+    | 'market'
+    | 'watchtower';
   x: number;
   y: number;
   level: number;
   timer: number;
+  hp?: number;
+  maxHp?: number;
+  buildProgress?: number;
   customName?: string;
   styleBanner?: string;
+}
+
+export interface CompoundWallSegment {
+  id: string;
+  nodeId: string;
+  islandId: string;
+  kind: 'village' | 'pirate_camp';
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  angle: number;
+  isGate: boolean;
+  hp: number;
+  maxHp: number;
+  destroyed: boolean;
 }
 
 export interface IslandEntity {
@@ -334,6 +457,8 @@ export interface IslandEntity {
   name: string;
   biome: IslandBiome;
   dangerous: boolean;
+  isSafeZone?: boolean;
+  villagerPersonality?: 'hostile' | 'foolish' | 'friendly';
   pirateRank?: DangerRank;
   hasVolcano?: boolean;
   kingdomId?: string;
@@ -451,7 +576,16 @@ export type EnemyKind =
   | 'jelly'
   | 'shark'
   | 'kraken'
-  | 'leviathan';
+  | 'leviathan'
+  | 'leviathan_baby'
+  | 'leviathan_adult'
+  | 'leviathan_elder'
+  | 'zombie_walker'
+  | 'zombie_brute'
+  | 'zombie_spitter'
+  | 'hacker_jammer'
+  | 'hacker_siphoner'
+  | 'hacker_corsair';
 
 export interface EnemyEntity {
   id: number;
@@ -463,6 +597,9 @@ export interface EnemyEntity {
   isAquatic: boolean;
   isLargeMonster: boolean;
   isLeviathan: boolean;
+  leviathanStage?: 'baby' | 'adult' | 'elder';
+  isZombie?: boolean;
+  isHacker?: boolean;
   provoked: boolean;
   onLand: boolean;
   boardedRaft: boolean;
@@ -496,7 +633,7 @@ export interface EnemyEntity {
 export interface ProjectileEntity {
   id: number;
   fromPlayer: boolean;
-  kind: 'arrow' | 'bullet' | 'harpoon' | 'plasma' | 'bomb' | 'nuke' | 'enemy_shot';
+  kind: 'arrow' | 'bullet' | 'harpoon' | 'plasma' | 'bomb' | 'nuke' | 'magic' | 'enemy_shot';
   x: number;
   y: number;
   vx: number;
@@ -504,6 +641,7 @@ export interface ProjectileEntity {
   dmg: number;
   aoeRadius?: number;
   isNuclear?: boolean;
+  isMagic?: boolean;
   life: number;
   color: string;
 }
@@ -651,6 +789,10 @@ export interface LeaderboardEntry {
   kills?: number;
   islandsVisited?: number;
   donorUnlocked?: boolean;
+  achievementsCount?: number;
+  titlesCount?: number;
+  unlockedAchievementsPreview?: string[];
+  flameTier?: number;
   lastSeen: number;
   activeNow: boolean;
 }
@@ -695,6 +837,7 @@ export interface NpcLiveVisualState {
   lastSpeech?: string;
   x: number;
   y: number;
+  foragingIsland?: boolean;
 }
 
 export interface ActiveNpcChatRenderInfo {
@@ -703,6 +846,49 @@ export interface ActiveNpcChatRenderInfo {
   aiMode: boolean;
   aiLoading: boolean;
   stage: 'choosing' | 'reading_reply' | 'finished';
+}
+
+export type WorldNpcRole =
+  | 'armero'
+  | 'forjador'
+  | 'mercader'
+  | 'alquimista'
+  | 'cartografo'
+  | 'chatarrero';
+
+export interface WorldNpcEntity {
+  id: string;
+  role: WorldNpcRole;
+  name: string;
+  title: string;
+  islandId: string;
+  islandName: string;
+  x: number;
+  y: number;
+  color: string;
+  hatColor: string;
+  specialty: string;
+  greeting: string;
+  discovered: boolean;
+  lastQuote?: string;
+}
+
+export interface NpcHistoryEntry {
+  speaker: 'player' | 'npc' | 'sistema';
+  name: string;
+  text: string;
+  moodBadge?: string;
+  viaAi?: boolean;
+  ts: number;
+}
+
+export interface GameSettings {
+  hudScale: number;
+  joystickScale: number;
+  joystickOpacity: number;
+  actionBtnScale: number;
+  orientationPref: 'auto' | 'landscape' | 'portrait';
+  twinStickMobile: boolean;
 }
 
 export interface PersistentState {
@@ -719,6 +905,18 @@ export interface PersistentState {
   elapsedSeconds: number;
   stealthTimer: number;
   sound: boolean;
+  language: 'es' | 'en';
+  settings: GameSettings;
+  magicUnlocked: boolean;
+  nuclearLabBuilt: boolean;
+  nuclearReactorBuilt: boolean;
+  radiationSuitCrafted: boolean;
+  warshipNuclearShield: boolean;
+  shipRadioBuilt: boolean;
+  warshipPassives: string[];
+  radiationExposure: number;
+  hangoverTimer: number;
+  jammedTimer: number;
   playerProfile: PlayerProfile;
   checkpoint: CheckpointState | null;
   newspaper: NewspaperState;
@@ -737,6 +935,9 @@ export interface PersistentState {
   relicsOwned: string[];
   equippedRelics: string[];
   islandStructures: IslandStructure[];
+  ageTier: AgeTier;
+  islandUnits: IslandUnit[];
+  aoeUpgrades: string[];
   hqIslandId: string | null;
   hqIslandName: string | null;
   activeTitleId: string;
@@ -775,6 +976,9 @@ export interface PersistentState {
     stolenRecovered: number;
     bountiesClaimed: number;
     ruinsExplored: number;
+    elderLeviathansKilled: number;
+    celestialForged: number;
+    radiosBuilt: number;
   };
   discoveredIslands: string[];
   swallowedIslands: string[];
@@ -784,4 +988,13 @@ export interface PersistentState {
   tutorialDismissed: boolean;
   vitals: PlayerVitalsState;
   npcMoods: Record<string, NpcMoodState>;
+  npcChatHistory: Record<string, NpcHistoryEntry[]>;
+  discoveredWorldNpcs: Array<{
+    id: string;
+    role: WorldNpcRole;
+    name: string;
+    islandName: string;
+    x: number;
+    y: number;
+  }>;
 }

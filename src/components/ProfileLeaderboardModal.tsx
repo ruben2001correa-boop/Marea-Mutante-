@@ -7,6 +7,7 @@ import {
   Copy,
   Crown,
   Eye,
+  Flame,
   Globe,
   Heart,
   RefreshCw,
@@ -20,11 +21,13 @@ import {
   WifiOff,
   X,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { computeSurvivalScore } from '../game/constants';
 import { COUNTRY_OPTIONS } from '../game/socialAndKingdoms';
 import type { LeaderboardEntry, PersistentState } from '../game/types';
+import { CustomSelect } from './CustomSelect';
 import { BRE_B_KEY, GAME_CREATOR_NAME } from './DonationModal';
+import { PullToRefresh } from './PullToRefresh';
 
 interface ProfileLeaderboardModalProps {
   open: boolean;
@@ -36,7 +39,7 @@ interface ProfileLeaderboardModalProps {
   pendingSync: boolean;
   onClose: () => void;
   onSaveProfile: (name: string, country: string) => void;
-  onRefreshLeaderboard: () => void;
+  onRefreshLeaderboard: () => Promise<void> | void;
   onOpenCredits?: () => void;
 }
 
@@ -48,6 +51,13 @@ function formatAgo(ts: number): string {
   const hr = Math.floor(min / 60);
   if (hr < 24) return `hace ${hr}h`;
   return `hace ${Math.floor(hr / 24)}d`;
+}
+
+function getFlameClass(flameTier?: number): string {
+  if (!flameTier || flameTier <= 0) return 'text-slate-100';
+  if (flameTier === 1) return 'name-flame-tier-1';
+  if (flameTier === 2) return 'name-flame-tier-2';
+  return 'name-flame-tier-3';
 }
 
 export function ProfileLeaderboardModal({
@@ -68,16 +78,22 @@ export function ProfileLeaderboardModal({
   const [onlyActive, setOnlyActive] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [copied, setCopied] = useState(false);
+  const [savedToast, setSavedToast] = useState(false);
   const [activeView, setActiveView] = useState<'profile' | 'credits'>('profile');
   const [inspectedId, setInspectedId] = useState<string | null>(null);
 
+  const prevOpenRef = useRef(false);
+
+  // Sync inputs ONLY when modal transitions from closed -> open so typing or picking a country is NEVER wiped
   useEffect(() => {
-    if (open) {
+    if (open && !prevOpenRef.current) {
       setNameInput(state.playerProfile.name);
       setCountryInput(state.playerProfile.country);
       setActiveView('profile');
-      onRefreshLeaderboard();
+      setSavedToast(false);
+      void onRefreshLeaderboard();
     }
+    prevOpenRef.current = open;
   }, [open, state.playerProfile.name, state.playerProfile.country, onRefreshLeaderboard]);
 
   const currentScore = computeSurvivalScore(state);
@@ -123,19 +139,32 @@ export function ProfileLeaderboardModal({
     window.setTimeout(() => setCopied(false), 1600);
   };
 
+  const handleSaveSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const cleanName = nameInput.trim().slice(0, 22) || 'Capitán Náufrago';
+    const cleanCountry = countryInput || 'CO';
+    setNameInput(cleanName);
+    onSaveProfile(cleanName, cleanCountry);
+    setSavedToast(true);
+    window.setTimeout(() => setSavedToast(false), 2600);
+  };
+
   return (
-    <div className="fixed inset-0 z-50 bg-[#030b14]/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
-      <div className="w-full max-w-5xl max-h-[92vh] rounded-xl bg-[#071625] border border-[#254b6e] shadow-2xl flex flex-col overflow-hidden">
+    <div
+      onPointerDown={(e) => e.stopPropagation()}
+      className="fixed inset-0 z-50 bg-[#030b14]/88 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5 safe-p-all"
+    >
+      <div className="w-full max-w-5xl max-h-[92dvh] rounded-2xl bg-[#071625] border border-[#254b6e] shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-[#0a1e30] border-b border-[#1b3c58]">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-sky-500/15 border border-sky-400/40 flex items-center justify-center">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-10 h-10 rounded-xl bg-sky-500/15 border border-sky-400/40 flex items-center justify-center shrink-0">
               <Trophy className="w-5 h-5 text-amber-300" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="font-display text-lg font-bold text-slate-50">
-                  Perfil y Clasificación Mundial en Vivo
+                <h2 className="font-display text-base sm:text-lg font-bold text-slate-50 truncate">
+                  Perfil Gamer y Clasificación Mundial
                 </h2>
                 <span
                   className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-bold ${
@@ -150,27 +179,27 @@ export function ProfileLeaderboardModal({
                   <span>
                     {isOnline
                       ? pendingSync
-                        ? 'Sincronizando cambios...'
+                        ? 'Sincronizando...'
                         : lastSyncedAt
                           ? `Al día (${formatAgo(lastSyncedAt)})`
                           : 'Conectado'
-                      : 'Sin internet (pendiente de subir)'}
+                      : 'Sin internet'}
                   </span>
                 </span>
               </div>
-              <p className="text-xs text-slate-300 font-mono-num">
-                ID: {state.playerProfile.id} · Récord Máximo: {maxScore.toLocaleString()} pts
+              <p className="text-xs text-slate-300 font-mono-num truncate">
+                ID: {state.playerProfile.id} · Récord: {maxScore.toLocaleString()} pts
                 {myIndex >= 0 ? ` · Puesto #${myIndex + 1} de ${leaderboard.length}` : ''}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="inline-flex rounded-lg bg-[#06131f] border border-[#1d3e5d] p-0.5">
+            <div className="inline-flex rounded-xl bg-[#06131f] border border-[#1d3e5d] p-1">
               <button
                 type="button"
                 onClick={() => setActiveView('profile')}
-                className={`px-2.5 py-1 rounded-md text-xs font-bold cursor-pointer transition-colors ${
+                className={`min-h-[38px] px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
                   activeView === 'profile'
                     ? 'bg-sky-500/25 text-sky-200 border border-sky-400/40'
                     : 'text-slate-300 hover:text-white'
@@ -181,7 +210,7 @@ export function ProfileLeaderboardModal({
               <button
                 type="button"
                 onClick={() => setActiveView('credits')}
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold cursor-pointer transition-colors ${
+                className={`min-h-[38px] inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
                   activeView === 'credits'
                     ? 'bg-amber-400/25 text-amber-200 border border-amber-400/50'
                     : 'text-amber-300 hover:text-amber-200'
@@ -194,7 +223,7 @@ export function ProfileLeaderboardModal({
             <button
               type="button"
               onClick={onClose}
-              className="p-2 rounded-lg bg-[#112c44] hover:bg-[#1a4163] text-slate-200 cursor-pointer"
+              className="min-w-[44px] min-h-[44px] rounded-xl bg-[#112c44] hover:bg-[#1a4163] text-slate-200 flex items-center justify-center cursor-pointer"
               aria-label="Cerrar perfil y clasificación"
             >
               <X className="w-5 h-5" />
@@ -215,7 +244,7 @@ export function ProfileLeaderboardModal({
               <p className="text-xs sm:text-sm text-slate-200 mt-2 max-w-xl mx-auto leading-relaxed">
                 Obra original creada por <b className="text-amber-200">{GAME_CREATOR_NAME}</b>:
                 narrativa de <span className="text-sky-300 font-semibold">El Océano de las Cenizas Saladas</span>,
-                diseño de supervivencia, sistemas navales, reinos e imperios y combates contra
+                construcción imperial AoE, buques de guerra nucleares, fragmentos divinos y combates contra
                 piratas y leviatanes.
               </p>
             </div>
@@ -228,7 +257,7 @@ export function ProfileLeaderboardModal({
                 </div>
                 <div className="text-xs font-bold text-slate-100">{GAME_CREATOR_NAME}</div>
                 <p className="text-[11px] text-slate-400">
-                  Cinemática de inicio a la deriva, encuentro con la Vice-Capitana Vega, misiones morales y monólogos del personaje.
+                  Cinemática de inicio nadando a la deriva, encuentro con la Vice-Capitana Vega, misiones morales y diálogos vivos.
                 </p>
               </div>
               <div className="rounded-xl bg-[#0b1f31] border border-[#1f4263] p-3.5 space-y-1">
@@ -238,7 +267,7 @@ export function ProfileLeaderboardModal({
                 </div>
                 <div className="text-xs font-bold text-slate-100">{GAME_CREATOR_NAME}</div>
                 <p className="text-[11px] text-slate-400">
-                  Construcción de pueblos/imperios, búnkeres nucleares, cuarteles piratas F–SSS y donaciones Bre-B ({BRE_B_KEY}).
+                  Construcción de pueblos/imperios, buque nuclear, forja con NPCs especializados y donaciones Bre-B ({BRE_B_KEY}).
                 </p>
               </div>
             </div>
@@ -251,7 +280,7 @@ export function ProfileLeaderboardModal({
                     onClose();
                     onOpenCredits();
                   }}
-                  className="px-4 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-extrabold cursor-pointer"
+                  className="min-h-[44px] px-4 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-extrabold cursor-pointer"
                 >
                   Abrir Pantalla Completa de Créditos
                 </button>
@@ -262,7 +291,6 @@ export function ProfileLeaderboardModal({
           <div className="flex-1 overflow-y-auto deck-scroll p-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
             {/* Left: Player Profile & Motivation Card */}
             <div className="lg:col-span-5 space-y-3">
-              {/* Rank Climb Motivation Banner */}
               <div className="rounded-xl bg-gradient-to-br from-[#102b44] to-[#081928] border border-amber-400/55 p-3.5 space-y-2 shadow-lg">
                 <div className="flex items-center justify-between gap-2">
                   <span className="inline-flex items-center gap-1.5 text-xs font-extrabold text-amber-300">
@@ -270,7 +298,7 @@ export function ProfileLeaderboardModal({
                     <span>
                       {myIndex >= 0
                         ? `Tu Puesto Mundial: #${myIndex + 1}`
-                        : 'Sube tu nombre a la Clasificación'}
+                        : 'Clasifícate en el Ranking Mundial'}
                     </span>
                   </span>
                   <span className="font-mono-num text-[11px] font-bold text-sky-300">
@@ -279,32 +307,35 @@ export function ProfileLeaderboardModal({
                 </div>
                 <p className="text-[11px] text-slate-200 leading-snug">
                   {myIndex === 0
-                    ? '¡Eres el #1 del océano! Sigue sobreviviendo, conquistando islas y sumando fama para defender tu corona.'
+                    ? '¡Eres el #1 del océano! Tus hazañas encienden las llamas máximas de tu nombre.'
                     : abovePlayer
-                      ? `Te faltan ${ptsToClimb.toLocaleString()} pts para superar a ${abovePlayer.name} (#${myIndex}) y subir en la tabla.`
-                      : 'Guarda tu perfil o juega conectado para aparecer y escalar en el ranking público.'}
+                      ? `Te faltan ${ptsToClimb.toLocaleString()} pts para superar a ${abovePlayer.name} (#${myIndex}).`
+                      : 'Guarda tu Nombre Gamer y País para inscribirte y subir puestos en el ranking mundial.'}
                 </p>
                 <button
                   type="button"
                   disabled={loading}
-                  onClick={onRefreshLeaderboard}
-                  className="w-full py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 text-xs font-extrabold inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                  onClick={() => handleSaveSubmit()}
+                  className="w-full min-h-[44px] rounded-xl bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 text-xs font-extrabold inline-flex items-center justify-center gap-1.5 cursor-pointer"
                 >
-                  <UploadCloud className="w-3.5 h-3.5" />
-                  <span>{loading ? 'Sincronizando...' : 'Subir Puntuación y Ponerme al Día'}</span>
+                  <UploadCloud className="w-4 h-4" />
+                  <span>{loading ? 'Sincronizando...' : 'Clasificarme Ahora con Mi Nombre'}</span>
                 </button>
               </div>
 
-              <div className="rounded-xl bg-[#0b1f31] border border-[#1f4263] p-3.5 space-y-3">
+              <form
+                onSubmit={handleSaveSubmit}
+                className="rounded-xl bg-[#0b1f31] border border-[#1f4263] p-3.5 space-y-3"
+              >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300">
                     <User className="w-4 h-4" />
-                    <span>Identidad del Sobreviviente</span>
+                    <span>Identidad Gamer del Sobreviviente</span>
                   </div>
                   <button
                     type="button"
                     onClick={handleCopyId}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#071522] border border-[#24496b] text-[10px] font-mono-num text-sky-300 hover:text-white cursor-pointer"
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded bg-[#071522] border border-[#24496b] text-[10px] font-mono-num text-sky-300 hover:text-white cursor-pointer"
                   >
                     {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
                     <span>{state.playerProfile.id}</span>
@@ -312,47 +343,49 @@ export function ProfileLeaderboardModal({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block text-[11px] font-semibold text-slate-300">
-                    Nombre de Jugador
+                  <label className="block text-xs font-semibold text-slate-300">
+                    Nombre Gamer
                   </label>
                   <input
                     type="text"
                     maxLength={22}
                     value={nameInput}
                     onChange={(e) => setNameInput(e.target.value)}
-                    placeholder="Tu nombre pirata"
-                    className="w-full px-2.5 py-1.5 rounded bg-[#06131f] border border-[#274f73] text-xs text-slate-100 focus:outline-none focus:border-amber-400"
+                    placeholder="Ej. ElCorsarioX"
+                    className="w-full min-h-[44px] px-3 py-2 rounded-lg bg-[#06131f] border border-[#274f73] text-sm text-slate-100 focus:outline-none focus:border-amber-400"
                   />
                 </div>
 
                 <div className="space-y-1">
-                  <label className="block text-[11px] font-semibold text-slate-300">
-                    País / Bandera
+                  <label className="block text-xs font-semibold text-slate-300 flex items-center gap-1">
+                    <Globe className="w-3.5 h-3.5 text-sky-300" />
+                    <span>País / Bandera</span>
                   </label>
-                  <div className="relative">
-                    <Globe className="w-3.5 h-3.5 text-sky-300 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <select
-                      value={countryInput}
-                      onChange={(e) => setCountryInput(e.target.value)}
-                      className="w-full pl-8 pr-2.5 py-1.5 rounded bg-[#06131f] border border-[#274f73] text-xs text-slate-100 focus:outline-none focus:border-amber-400"
-                    >
-                      {COUNTRY_OPTIONS.map((c) => (
-                        <option key={c.code} value={c.code}>
-                          {c.code} — {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  <CustomSelect
+                    value={countryInput}
+                    ariaLabel="Seleccionar país"
+                    onChange={(val) => setCountryInput(val)}
+                    options={COUNTRY_OPTIONS.map((c) => ({
+                      value: c.code,
+                      label: `${c.code} — ${c.name}`,
+                    }))}
+                  />
                 </div>
 
+                {savedToast && (
+                  <div className="rounded-lg bg-emerald-500/15 border border-emerald-400/50 px-3 py-2 text-xs font-bold text-emerald-200 flex items-center gap-1.5">
+                    <Check className="w-4 h-4 text-emerald-300" />
+                    <span>Perfil gamer guardado y enviado a la clasificación.</span>
+                  </div>
+                )}
+
                 <button
-                  type="button"
-                  onClick={() => onSaveProfile(nameInput, countryInput)}
-                  className="w-full py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-extrabold cursor-pointer"
+                  type="submit"
+                  className="w-full min-h-[44px] py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs sm:text-sm font-extrabold cursor-pointer"
                 >
-                  Guardar Perfil y Sincronizar Ranking
+                  Guardar Nombre Gamer y Sincronizar
                 </button>
-              </div>
+              </form>
 
               <div className="rounded-xl bg-[#0b1f31] border border-[#1f4263] p-3 grid grid-cols-2 gap-2">
                 <div className="rounded-lg bg-[#071522] border border-[#18344d] p-2">
@@ -368,15 +401,15 @@ export function ProfileLeaderboardModal({
                   </div>
                 </div>
                 <div className="rounded-lg bg-[#071522] border border-[#18344d] p-2">
-                  <div className="text-[10px] text-slate-400">Recompensa</div>
-                  <div className="font-mono-num text-xs font-bold text-rose-300 mt-0.5">
-                    {state.bounty.toLocaleString()} B
+                  <div className="text-[10px] text-slate-400">Logros / Títulos</div>
+                  <div className="font-mono-num text-xs font-bold text-amber-300 mt-0.5">
+                    {state.achievementsUnlocked.length} logros · {state.unlockedTitles.length} tít.
                   </div>
                 </div>
                 <div className="rounded-lg bg-[#071522] border border-[#18344d] p-2">
-                  <div className="text-[10px] text-slate-400">Ruinas / Bajas</div>
-                  <div className="font-mono-num text-xs font-bold text-emerald-300 mt-0.5">
-                    {state.stats.ruinsExplored} / {state.stats.kills}
+                  <div className="text-[10px] text-slate-400">Recompensa</div>
+                  <div className="font-mono-num text-xs font-bold text-rose-300 mt-0.5">
+                    {(state.bounty / 1000000).toFixed(1)}M B
                   </div>
                 </div>
               </div>
@@ -384,7 +417,6 @@ export function ProfileLeaderboardModal({
 
             {/* Right: Observable World Leaderboard */}
             <div className="lg:col-span-7 flex flex-col min-h-0 space-y-2.5">
-              {/* Top 3 Podium */}
               {top3.length > 0 && (
                 <div className="grid grid-cols-3 gap-2">
                   {top3.map((leader, idx) => (
@@ -406,12 +438,15 @@ export function ProfileLeaderboardModal({
                         </span>
                         <span className="font-mono-num text-sky-300">{leader.country}</span>
                       </div>
-                      <div className="text-xs font-bold text-slate-50 truncate mt-0.5">
-                        {leader.clanTag ? `[${leader.clanTag}] ` : ''}
-                        {leader.name}
+                      <div className={`text-xs font-extrabold truncate mt-0.5 flex items-center gap-1 ${getFlameClass(leader.flameTier)}`}>
+                        {(leader.flameTier || 0) > 0 && <Flame className="w-3 h-3 text-amber-400 shrink-0" />}
+                        <span className="truncate">
+                          {leader.clanTag ? `[${leader.clanTag}] ` : ''}
+                          {leader.name}
+                        </span>
                       </div>
                       <div className="text-[10px] text-slate-300 truncate">
-                        {leader.titleName || 'Náufrago'}
+                        {leader.titleName || 'Náufrago'} · {leader.achievementsCount ?? 0}🏆
                       </div>
                       <div className="font-mono-num text-xs font-extrabold text-amber-300 mt-1">
                         {leader.maxScore.toLocaleString()} pts
@@ -421,7 +456,6 @@ export function ProfileLeaderboardModal({
                 </div>
               )}
 
-              {/* Search & Filter Toolbar */}
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5 text-xs font-bold text-slate-100">
                   <Award className="w-4 h-4 text-amber-300" />
@@ -429,19 +463,19 @@ export function ProfileLeaderboardModal({
                 </div>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <div className="relative">
-                    <Search className="w-3 h-3 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <input
                       type="text"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
-                      placeholder="Buscar capitán, país, clan..."
-                      className="pl-6 pr-2 py-1 rounded bg-[#081726] border border-[#214566] text-[11px] text-slate-100 w-[155px] focus:outline-none focus:border-sky-400"
+                      placeholder="Buscar capitán, país..."
+                      className="min-h-[40px] pl-8 pr-2.5 py-1 rounded-lg bg-[#081726] border border-[#214566] text-xs text-slate-100 w-[165px] focus:outline-none focus:border-sky-400"
                     />
                   </div>
                   <button
                     type="button"
                     onClick={() => setOnlyActive((v) => !v)}
-                    className={`px-2 py-1 rounded text-[11px] font-bold border cursor-pointer ${
+                    className={`min-h-[40px] px-2.5 py-1 rounded-lg text-xs font-bold border cursor-pointer ${
                       onlyActive
                         ? 'bg-emerald-600 border-emerald-400 text-white'
                         : 'bg-[#0d2235] border-[#214566] text-slate-300'
@@ -452,16 +486,15 @@ export function ProfileLeaderboardModal({
                   <button
                     type="button"
                     disabled={loading}
-                    onClick={onRefreshLeaderboard}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-[#102940] hover:bg-[#173a5a] border border-[#254d73] text-[11px] font-bold text-sky-200 cursor-pointer disabled:opacity-50"
+                    onClick={() => void onRefreshLeaderboard()}
+                    className="min-h-[40px] inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#102940] hover:bg-[#173a5a] border border-[#254d73] text-xs font-bold text-sky-200 cursor-pointer disabled:opacity-50"
                   >
-                    <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
                     <span>Actualizar</span>
                   </button>
                 </div>
               </div>
 
-              {/* Selected Player Inspector ("Observar Capitán") */}
               {inspectedEntry && (
                 <div className="rounded-xl bg-[#0c2338] border border-cyan-400/55 p-3 space-y-2">
                   <div className="flex items-center justify-between gap-2">
@@ -469,10 +502,15 @@ export function ProfileLeaderboardModal({
                       <Eye className="w-4 h-4 text-cyan-300 shrink-0" />
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="text-xs sm:text-sm font-extrabold text-slate-50 truncate">
+                          <span className={`text-xs sm:text-sm font-extrabold truncate ${getFlameClass(inspectedEntry.flameTier)}`}>
                             {inspectedEntry.clanTag ? `[${inspectedEntry.clanTag}] ` : ''}
                             {inspectedEntry.name}
                           </span>
+                          {(inspectedEntry.flameTier || 0) > 0 && (
+                            <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 text-[9px] font-bold text-amber-200">
+                              <Flame className="w-2.5 h-2.5" /> Llama Nv.{inspectedEntry.flameTier}
+                            </span>
+                          )}
                           {inspectedEntry.donorUnlocked && (
                             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-rose-500/20 border border-rose-400/50 text-[9px] font-bold text-rose-200">
                               <Heart className="w-2.5 h-2.5" /> Mecenas
@@ -491,16 +529,16 @@ export function ProfileLeaderboardModal({
                           </span>
                         </div>
                         <div className="text-[11px] text-amber-200">
-                          Título: <b>{inspectedEntry.titleName || 'Náufrago'}</b> · País: {inspectedEntry.country} · ID {inspectedEntry.id}
+                          Título: <b>{inspectedEntry.titleName || 'Náufrago'}</b> · País: {inspectedEntry.country} · {inspectedEntry.achievementsCount ?? 0} logros
                         </div>
                       </div>
                     </div>
                     <button
                       type="button"
                       onClick={() => setInspectedId(null)}
-                      className="p-1 rounded bg-[#143452] text-slate-300 hover:text-white cursor-pointer"
+                      className="min-w-[36px] min-h-[36px] rounded-lg bg-[#143452] text-slate-300 hover:text-white flex items-center justify-center cursor-pointer"
                     >
-                      <X className="w-3.5 h-3.5" />
+                      <X className="w-4 h-4" />
                     </button>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
@@ -517,9 +555,9 @@ export function ProfileLeaderboardModal({
                       </span>
                     </div>
                     <div className="rounded bg-[#071625] px-2 py-1 border border-[#1d3f5e]">
-                      <span className="text-slate-400 block text-[9px]">Progreso</span>
+                      <span className="text-slate-400 block text-[9px]">Logros / Títulos</span>
                       <span className="font-mono-num font-bold text-sky-300">
-                        Día {inspectedEntry.dayCount} · Nv.{inspectedEntry.level}
+                        {inspectedEntry.achievementsCount ?? 0}🏆 · {inspectedEntry.titlesCount ?? 1}🎖️
                       </span>
                     </div>
                     <div className="rounded bg-[#071625] px-2 py-1 border border-[#1d3f5e]">
@@ -532,78 +570,92 @@ export function ProfileLeaderboardModal({
                 </div>
               )}
 
-              {/* Leaderboard Table */}
+              {/* Leaderboard Table with Pull-to-Refresh */}
               <div className="rounded-xl bg-[#0b1f31] border border-[#1f4263] overflow-hidden">
                 <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-[#081726] border-b border-[#193752] text-[10px] font-bold uppercase text-slate-400">
                   <div className="col-span-1">#</div>
-                  <div className="col-span-5">Capitán · Título (Toca para observar)</div>
+                  <div className="col-span-5">Capitán · Llamas & Logros</div>
                   <div className="col-span-2 text-center">País</div>
                   <div className="col-span-2 text-right">Día/Nv</div>
                   <div className="col-span-2 text-right">Máx. Pts</div>
                 </div>
 
-                <div className="divide-y divide-[#15314a] max-h-[300px] overflow-y-auto deck-scroll">
-                  {visibleRows.length === 0 ? (
-                    <div className="p-4 text-center text-xs text-slate-400">
-                      {leaderboard.length === 0
-                        ? 'Sincronizando capitanes activos en el servidor...'
-                        : 'No hay capitanes que coincidan con ese filtro.'}
-                    </div>
-                  ) : (
-                    visibleRows.map((entry) => {
-                      const rank = leaderboard.findIndex((p) => p.id === entry.id) + 1;
-                      const isSelf = entry.id === state.playerProfile.id;
-                      const isSelected = inspectedId === entry.id;
-                      return (
-                        <button
-                          key={entry.id}
-                          type="button"
-                          onClick={() => setInspectedId(isSelected ? null : entry.id)}
-                          className={`w-full text-left grid grid-cols-12 gap-2 px-3 py-2 items-center text-xs cursor-pointer transition-colors ${
-                            isSelected
-                              ? 'bg-cyan-500/20'
-                              : isSelf
-                                ? 'bg-amber-400/10 hover:bg-amber-400/20'
-                                : 'hover:bg-[#112c45]'
-                          }`}
-                        >
-                          <div className="col-span-1 font-mono-num font-bold text-amber-300">
-                            {rank}
-                          </div>
-                          <div className="col-span-5 min-w-0">
-                            <div className="flex items-center gap-1.5">
-                              <span
-                                className={`w-2 h-2 rounded-full shrink-0 ${
-                                  entry.activeNow ? 'bg-emerald-400' : 'bg-slate-500'
-                                }`}
-                                title={entry.activeNow ? 'En línea ahora' : `Visto ${formatAgo(entry.lastSeen)}`}
-                              />
-                              <span className="font-bold text-slate-100 truncate">
-                                {entry.clanTag ? `[${entry.clanTag}] ` : ''}
-                                {entry.name}
-                              </span>
-                              {entry.donorUnlocked && (
-                                <Heart className="w-3 h-3 text-rose-400 shrink-0" />
-                              )}
+                <PullToRefresh onRefresh={onRefreshLeaderboard} className="max-h-[320px]">
+                  <div className="divide-y divide-[#15314a]">
+                    {visibleRows.length === 0 ? (
+                      <div className="p-4 text-center text-xs text-slate-400">
+                        {leaderboard.length === 0
+                          ? 'Sincronizando capitanes activos en el servidor...'
+                          : 'No hay capitanes que coincidan con ese filtro.'}
+                      </div>
+                    ) : (
+                      visibleRows.map((entry) => {
+                        const rank = leaderboard.findIndex((p) => p.id === entry.id) + 1;
+                        const isSelf = entry.id === state.playerProfile.id;
+                        const isSelected = inspectedId === entry.id;
+                        const flame = entry.flameTier || 0;
+                        return (
+                          <button
+                            key={entry.id}
+                            type="button"
+                            onClick={() => setInspectedId(isSelected ? null : entry.id)}
+                            className={`w-full min-h-[48px] text-left grid grid-cols-12 gap-2 px-3 py-2 items-center text-xs cursor-pointer transition-colors ${
+                              isSelected
+                                ? 'bg-cyan-500/20'
+                                : isSelf
+                                  ? 'bg-amber-400/10 hover:bg-amber-400/20'
+                                  : 'hover:bg-[#112c45]'
+                            }`}
+                          >
+                            <div className="col-span-1 font-mono-num font-bold text-amber-300">
+                              {rank}
                             </div>
-                            <div className="font-mono-num text-[10px] text-slate-400 pl-3.5 truncate">
-                              {entry.titleName || 'Náufrago'} · {entry.shipClass || 'Balsa'} · {(entry.bounty / 1000000).toFixed(1)}M B
+                            <div className="col-span-5 min-w-0">
+                              <div className="flex items-center gap-1.5">
+                                <span
+                                  className={`w-2 h-2 rounded-full shrink-0 ${
+                                    entry.activeNow ? 'bg-emerald-400' : 'bg-slate-500'
+                                  }`}
+                                  title={entry.activeNow ? 'En línea ahora' : `Visto ${formatAgo(entry.lastSeen)}`}
+                                />
+                                {flame > 0 && (
+                                  <Flame
+                                    className={`w-3.5 h-3.5 shrink-0 ${
+                                      flame >= 3
+                                        ? 'text-cyan-300'
+                                        : flame === 2
+                                          ? 'text-orange-400'
+                                          : 'text-amber-300'
+                                    }`}
+                                  />
+                                )}
+                                <span className={`font-extrabold truncate ${getFlameClass(flame)}`}>
+                                  {entry.clanTag ? `[${entry.clanTag}] ` : ''}
+                                  {entry.name}
+                                </span>
+                                {entry.donorUnlocked && (
+                                  <Heart className="w-3 h-3 text-rose-400 shrink-0" />
+                                )}
+                              </div>
+                              <div className="font-mono-num text-[10px] text-slate-400 pl-3.5 truncate">
+                                {entry.titleName || 'Náufrago'} · {entry.achievementsCount ?? 0}🏆 · {entry.titlesCount ?? 1}🎖️
+                              </div>
                             </div>
-                          </div>
-                          <div className="col-span-2 text-center font-mono-num text-[11px] font-bold text-sky-300">
-                            {entry.country}
-                          </div>
-                          <div className="col-span-2 text-right font-mono-num text-[11px] text-slate-300">
-                            D{entry.dayCount} · Nv.{entry.level}
-                          </div>
-                          <div className="col-span-2 text-right font-mono-num font-extrabold text-amber-300">
-                            {entry.maxScore.toLocaleString()}
-                          </div>
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
+                            <div className="col-span-2 text-center font-mono-num text-[11px] font-bold text-sky-300">
+                              {entry.country}
+                            </div>
+                            <div className="col-span-2 text-right font-mono-num text-[11px] text-slate-300">
+                              D{entry.dayCount} · Nv.{entry.level}
+                            </div>
+                            <div className="col-span-2 text-right font-mono-num font-extrabold text-amber-300">
+                              {entry.maxScore.toLocaleString()}
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </PullToRefresh>
               </div>
             </div>
           </div>

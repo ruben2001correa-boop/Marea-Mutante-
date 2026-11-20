@@ -5,12 +5,81 @@ import type {
   IslandBiome,
   IslandEntity,
   IslandNode,
+  WorldNpcEntity,
+  WorldNpcRole,
 } from './types';
 
 // Large Chunk Size so vast islands and full villages feel truly epic & proportional!
 export const CHUNK_SIZE = 1850;
 
 export const DANGER_RANKS: DangerRank[] = ['F', 'E', 'D', 'C', 'B', 'A', 'S', 'SS', 'SSS'];
+
+export interface DistanceTierInfo {
+  tier: number;
+  label: string;
+  emoji: string;
+  mult: number;
+  color: string;
+  dangerNote: string;
+}
+
+export function getDistanceDifficultyMult(x: number, y: number): number {
+  const dist = Math.hypot(x, y);
+  return 1 + Math.min(3.8, Math.max(0, (dist - 900) / 2100));
+}
+
+export function getDistanceTierInfo(x: number, y: number): DistanceTierInfo {
+  const dist = Math.hypot(x, y);
+  const mult = getDistanceDifficultyMult(x, y);
+  if (dist >= 6500) {
+    return {
+      tier: 5,
+      label: 'CALAMIDAD',
+      emoji: '🔥',
+      mult,
+      color: '#f43f5e',
+      dangerNote: 'Zona de Calamidad extrema: Leviatanes Ancianos, hordas y tormenta letal.',
+    };
+  }
+  if (dist >= 4400) {
+    return {
+      tier: 4,
+      label: 'Zona Crítica',
+      emoji: '☠️',
+      mult,
+      color: '#fb923c',
+      dangerNote: 'Aguas letales con corsarios pesados, hackers y brotes zombi.',
+    };
+  }
+  if (dist >= 2700) {
+    return {
+      tier: 3,
+      label: 'Abismo Mutado',
+      emoji: '☣️',
+      mult,
+      color: '#c084fc',
+      dangerNote: 'Peligro alto: fauna mutada, fragmentos nucleares y bestias marinas.',
+    };
+  }
+  if (dist >= 1300) {
+    return {
+      tier: 2,
+      label: 'Mar Abierto',
+      emoji: '🌊',
+      mult,
+      color: '#38bdf8',
+      dangerNote: 'Patrullas piratas dispersas y primeras islas salvajes.',
+    };
+  }
+  return {
+    tier: 1,
+    label: 'Aguas Cunas',
+    emoji: '⚓',
+    mult,
+    color: '#34d399',
+    dangerNote: 'Aguas cercanas al punto de aparición; oleaje moderado.',
+  };
+}
 
 export function getPirateRankInfo(rank: DangerRank): {
   hp: number;
@@ -63,7 +132,15 @@ const BIOME_NAMES: Record<IslandBiome, string[]> = {
   pirata: ['Guarida Roja', 'Cala Bandido', 'Bastión Ojo Negro', 'Fuerte Pólvora'],
   pradera: ['Pradera Verde', 'Valle Manso', 'Colina Trigo', 'Campos del Sur'],
   abisal: ['Santuario Abisal', 'Altar Cristal', 'Fosa Celeste', 'Ruina Tecnológica'],
+  zombie: ['Isla Putrefacta', 'Cayo Lázaro', 'Bahía Muerta', 'Necrópolis Salada'],
 };
+
+const SAFE_ZONE_NAMES = [
+  'Cayo Santuario',
+  'Bahía de la Calma',
+  'Puerto Serenidad',
+  'Refugio del Horizonte',
+];
 
 const VILLAGE_NAMES: string[] = [
   'Puerto Coral',
@@ -111,28 +188,37 @@ export function generateChunkIsland(
     (cx === 0 && cy === -1) ||
     (cx === 0 && cy === 1);
   const spawnRoll = hash2D(cx, cy, 11);
-  if (!isGuaranteedStarter && spawnRoll > 0.6) return null;
+  if (!isGuaranteedStarter && spawnRoll > 0.62) return null;
 
   const distFromOrigin = Math.hypot(cx, cy);
   const biomeRoll = hash2D(cx, cy, 23);
+
+  // Periodic calm Sanctuary Safe Zones (even far into stormy seas!)
+  const isSafeZone =
+    (cx === 1 && cy === 0) ||
+    (!isGuaranteedStarter && Math.abs(cx + cy * 2) % 5 === 0 && hash2D(cx, cy, 991) > 0.62);
 
   let biome: IslandBiome = 'tropical';
   if (cx === 1 && cy === 0) biome = 'pradera';
   else if (cx === 0 && cy === -1) biome = 'minera';
   else if (cx === -1 && cy === 0) biome = 'desierto';
   else if (cx === 0 && cy === 1) biome = 'chatarra';
-  else if (distFromOrigin >= 3.5 && biomeRoll > 0.82) biome = 'abisal';
-  else if (biomeRoll > 0.74) biome = 'volcanica';
-  else if (biomeRoll > 0.56) biome = 'pirata';
-  else if (biomeRoll > 0.45) biome = 'minera';
-  else if (biomeRoll > 0.34) biome = 'desierto';
-  else if (biomeRoll > 0.23) biome = 'chatarra';
-  else if (biomeRoll > 0.12) biome = 'pradera';
+  else if (isSafeZone) biome = biomeRoll > 0.5 ? 'tropical' : 'pradera';
+  else if (distFromOrigin >= 2.2 && biomeRoll > 0.84) biome = 'zombie';
+  else if (distFromOrigin >= 3.2 && biomeRoll > 0.75) biome = 'abisal';
+  else if (biomeRoll > 0.66) biome = 'volcanica';
+  else if (biomeRoll > 0.51) biome = 'pirata';
+  else if (biomeRoll > 0.40) biome = 'minera';
+  else if (biomeRoll > 0.30) biome = 'desierto';
+  else if (biomeRoll > 0.20) biome = 'chatarra';
+  else if (biomeRoll > 0.10) biome = 'pradera';
 
   const hasPirateHq =
     !isGuaranteedStarter &&
+    !isSafeZone &&
+    biome !== 'zombie' &&
     (biome === 'pirata' ||
-      ((biome === 'volcanica' || biome === 'abisal') && hash2D(cx, cy, 881) > 0.45));
+      ((biome === 'volcanica' || biome === 'abisal') && hash2D(cx, cy, 881) > 0.42));
 
   let pirateRank: DangerRank | undefined;
   if (hasPirateHq) {
@@ -143,7 +229,12 @@ export function generateChunkIsland(
   }
 
   const dangerous =
-    biome === 'pirata' || biome === 'abisal' || biome === 'volcanica' || Boolean(pirateRank);
+    !isSafeZone &&
+    (biome === 'pirata' ||
+      biome === 'abisal' ||
+      biome === 'volcanica' ||
+      biome === 'zombie' ||
+      Boolean(pirateRank));
   const hasVolcano = biome === 'volcanica';
   const kingdomId =
     biome === 'tropical' || biome === 'pradera'
@@ -159,12 +250,23 @@ export function generateChunkIsland(
             : undefined;
 
   const names = BIOME_NAMES[biome];
-  const name = names[Math.floor(hash2D(cx, cy, 37) * names.length)];
+  const name = isSafeZone
+    ? SAFE_ZONE_NAMES[Math.floor(hash2D(cx, cy, 997) * SAFE_ZONE_NAMES.length)]
+    : names[Math.floor(hash2D(cx, cy, 37) * names.length)];
+
+  // Islander personality: hostile, foolish ("mensos"), or friendly
+  const pRoll = hash2D(cx, cy, 733);
+  const villagerPersonality: 'hostile' | 'foolish' | 'friendly' = isSafeZone
+    ? 'friendly'
+    : biome === 'pirata' || biome === 'volcanica' || (distFromOrigin > 3 && pRoll > 0.55)
+      ? 'hostile'
+      : pRoll > 0.35
+        ? 'foolish'
+        : 'friendly';
 
   const margin = 520;
   const x = cx * CHUNK_SIZE + margin + hash2D(cx, cy, 41) * (CHUNK_SIZE - margin * 2);
   const y = cy * CHUNK_SIZE + margin + hash2D(cx, cy, 53) * (CHUNK_SIZE - margin * 2);
-  // Vast proportional island radius: 440 - 660px (880 - 1320px across!)
   const radius = 440 + hash2D(cx, cy, 67) * 220;
 
   const points: Array<{ angle: number; r: number }> = [];
@@ -178,11 +280,12 @@ export function generateChunkIsland(
   const hasVillage =
     cx === 1 && cy === 0
       ? true
-      : (biome === 'pradera' || biome === 'tropical' || biome === 'desierto' || biome === 'chatarra') &&
-        hash2D(cx, cy, 71) > 0.32;
+      : isSafeZone ||
+        ((biome === 'pradera' || biome === 'tropical' || biome === 'desierto' || biome === 'chatarra') &&
+          hash2D(cx, cy, 71) > 0.32);
 
   const nodes: IslandNode[] = [];
-  const nodeCount = 17 + Math.floor(hash2D(cx, cy, 79) * 8);
+  const nodeCount = 18 + Math.floor(hash2D(cx, cy, 79) * 8);
   for (let i = 0; i < nodeCount; i++) {
     const a = hash2D(cx, cy, 200 + i) * Math.PI * 2;
     let d = (0.2 + hash2D(cx, cy, 300 + i) * 0.62) * radius;
@@ -193,12 +296,12 @@ export function generateChunkIsland(
       kind = 'pirate_camp';
     } else if (hasVillage && i === 0) {
       kind = 'village';
-    } else if (i === 1 && (biome === 'pirata' || biome === 'abisal' || biome === 'desierto' || kr > 0.5)) {
+    } else if (i === 1 && (biome === 'pirata' || biome === 'abisal' || biome === 'zombie' || biome === 'desierto' || kr > 0.45)) {
       kind = 'chest';
     } else if (i === 2) {
-      // Abandoned coastal/interior landmark on every island!
       const landRoll = hash2D(cx, cy, 431);
-      if (biome === 'chatarra' || biome === 'minera') kind = 'abandoned_bunker';
+      if (biome === 'zombie') kind = 'zombie_grave';
+      else if (biome === 'chatarra' || biome === 'minera') kind = 'abandoned_bunker';
       else if (biome === 'abisal' || biome === 'desierto') kind = 'abandoned_ruin';
       else if (landRoll > 0.5) {
         kind = 'abandoned_lighthouse';
@@ -208,18 +311,19 @@ export function generateChunkIsland(
         d = 0.78 * radius;
       }
     } else if (i === 3) {
-      // Second structure: either inhabited fishing post or extra ruin/shipwreck!
-      if (hasVillage || biome === 'tropical' || biome === 'pradera') {
+      if (biome === 'zombie') {
+        kind = 'zombie_grave';
+      } else if (hasVillage || biome === 'tropical' || biome === 'pradera') {
         kind = hash2D(cx, cy, 443) > 0.4 ? 'fishing_post' : 'abandoned_ruin';
         if (kind === 'fishing_post') d = 0.75 * radius;
       } else {
         kind = hash2D(cx, cy, 449) > 0.5 ? 'shipwreck' : 'abandoned_bunker';
         if (kind === 'shipwreck') d = 0.78 * radius;
       }
-    } else if (i === 4 && hash2D(cx, cy, 461) > 0.38) {
-      kind = biome === 'pirata' ? 'pirate_camp' : 'abandoned_ruin';
-    } else if ((biome === 'chatarra' || biome === 'abisal') && kr > 0.52) {
-      kind = 'tech_wreck';
+    } else if (i === 4 && hash2D(cx, cy, 461) > 0.36) {
+      kind = biome === 'pirata' ? 'pirate_camp' : hash2D(cx, cy, 467) > 0.55 ? 'radio_tower' : 'abandoned_ruin';
+    } else if ((biome === 'chatarra' || biome === 'abisal' || biome === 'zombie') && kr > 0.52) {
+      kind = biome === 'zombie' && kr > 0.76 ? 'zombie_grave' : 'tech_wreck';
     } else if (biome === 'minera' || biome === 'volcanica') {
       if (kr > 0.78) kind = 'gold_vein';
       else if (kr > 0.52) kind = 'iron';
@@ -230,7 +334,7 @@ export function generateChunkIsland(
       if (kr > 0.72) kind = 'gold_vein';
       else if (kr > 0.45) kind = 'coal';
       else kind = 'tree';
-    } else if (biome === 'abisal' && kr > 0.42) {
+    } else if (biome === 'abisal' && kr > 0.4) {
       kind = 'crystal';
     } else if (biome === 'chatarra') {
       kind = kr > 0.45 ? 'iron' : 'rock';
@@ -252,7 +356,12 @@ export function generateChunkIsland(
             ? 120
             : kind === 'pirate_camp'
               ? getPirateRankInfo(pirateRank || 'F').hp
-              : kind === 'abandoned_ruin' || kind === 'abandoned_lighthouse' || kind === 'shipwreck' || kind === 'abandoned_bunker'
+              : kind === 'abandoned_ruin' ||
+                  kind === 'abandoned_lighthouse' ||
+                  kind === 'shipwreck' ||
+                  kind === 'abandoned_bunker' ||
+                  kind === 'radio_tower' ||
+                  kind === 'zombie_grave'
                 ? 80
                 : kind === 'crystal'
                   ? 75
@@ -292,11 +401,11 @@ export function generateChunkIsland(
     let kind: AnimalKind = 'chicken';
     const roll = hash2D(cx, cy, 750 + a);
 
-    if (biome === 'pradera' || hasVillage) {
+    if (isSafeZone || biome === 'pradera' || hasVillage) {
       kind = roll > 0.65 ? 'goat' : roll > 0.32 ? 'pig' : 'chicken';
     } else if (biome === 'desierto') {
       kind = roll > 0.4 ? 'scorpion' : 'goat';
-    } else if (biome === 'volcanica' || biome === 'pirata' || biome === 'minera') {
+    } else if (biome === 'volcanica' || biome === 'pirata' || biome === 'minera' || biome === 'zombie') {
       kind = roll > 0.48 ? 'boar' : 'wolf';
     } else {
       kind = roll > 0.5 ? 'boar' : 'chicken';
@@ -343,6 +452,8 @@ export function generateChunkIsland(
       name,
       biome,
       dangerous,
+      isSafeZone,
+      villagerPersonality,
       pirateRank,
       hasVolcano,
       kingdomId,
@@ -429,4 +540,146 @@ export function resolveRaftBoatCollision(
     };
   }
   return { x: entityX, y: entityY, collided: false };
+}
+
+const WORLD_NPC_CATALOG: Record<
+  WorldNpcRole,
+  {
+    names: string[];
+    title: string;
+    color: string;
+    hatColor: string;
+    specialty: string;
+    greeting: string;
+  }
+> = {
+  armero: {
+    names: ['Maestro Torren', 'Herrero Varro', 'Yunque Bruno', 'Maestra Kira'],
+    title: 'Armero de Guerra',
+    color: '#f97316',
+    hatColor: '#7c2d12',
+    specialty: 'Forja armas Épicas y Legendarias con fragmentos · Repara casco y vende hierro',
+    greeting:
+      '¡Trae fragmentos épicos o legendarios y acero! Solo un buen yunque despierta armas verdaderas.',
+  },
+  forjador: {
+    names: ['Forjador Solís', 'Maestro Astral Orin', 'Artesana Selene', 'Forjador Kael'],
+    title: 'Forjador Celestial y Divino',
+    color: '#38f8e2',
+    hatColor: '#0f172a',
+    specialty: 'Forja armas Épicas, Legendarias y Divinas · Transmuta fragmentos raros',
+    greeting:
+      'Mis brasas funden fragmentos divinos y celestiales. Si buscas poder de los dioses antiguos, habla conmigo.',
+  },
+  mercader: {
+    names: ['Mercader Lucho', 'Comerciante Mireya', 'Buhonero Tadeo', 'Capitana Rina'],
+    title: 'Mercader Naval',
+    color: '#fbbf24',
+    hatColor: '#78350f',
+    specialty: 'Vende víveres, agua, madera y compra excedentes en Oro',
+    greeting:
+      '¡Oro contante o víveres frescos! Nada navega mucho tiempo sin despensa llena.',
+  },
+  alquimista: {
+    names: ['Alquimista Lyra', 'Boticario Darío', 'Sabia Isolde', 'Místico Fen'],
+    title: 'Alquimista y Curandera',
+    color: '#c084fc',
+    hatColor: '#4c1d95',
+    specialty: 'Cura radiación y resaca · Vende cristal abisal, tónicos mentales e incienso',
+    greeting:
+      'Los mares mutados envenenan cuerpo y mente. Mis elixires te devolverán al combate.',
+  },
+  cartografo: {
+    names: ['Cartógrafo Mateo', 'Vigía Lucía', 'Navegante Silvano', 'Oteador Paz'],
+    title: 'Cartógrafo de Abismos',
+    color: '#38bdf8',
+    hatColor: '#1e3a8a',
+    specialty: 'Vende coordenadas exactas de Armeros, Forjadores, Leviatanes y Cacerías',
+    greeting:
+      'Mis cartas señalan dónde esperan los maestros forjadores y las guaridas más ricas del océano.',
+  },
+  chatarrero: {
+    names: ['Chatarrero Tino', 'Ingeniera Vera', 'Soldador Rocco', 'Chispa Nilo'],
+    title: 'Chatarrero Tecnológico',
+    color: '#94a3b8',
+    hatColor: '#334155',
+    specialty: 'Vende tecnología del Viejo Mundo, titanio, chatarra y kits de radio',
+    greeting:
+      'Lo que otros llaman basura es oro puro para blindar tu navío o construir reactores.',
+  },
+};
+
+export function getStarterBargeWorldNpc(): WorldNpcEntity {
+  const cfg = WORLD_NPC_CATALOG.armero;
+  return {
+    id: 'wnpc_barge_armero',
+    role: 'armero',
+    name: 'Maestro Torren',
+    title: 'Armero del Pontón Libre',
+    islandId: 'barge_origin',
+    islandName: 'Pontón Forja del Alba',
+    x: 360,
+    y: -250,
+    color: cfg.color,
+    hatColor: cfg.hatColor,
+    specialty: cfg.specialty,
+    greeting: cfg.greeting,
+    discovered: true,
+    lastQuote: '¡Cuando juntes fragmentos épicos, ven a mi yunque en el Pontón!',
+  };
+}
+
+export function generateIslandWorldNpcs(isl: IslandEntity, cx: number, cy: number): WorldNpcEntity[] {
+  if (isl.biome === 'pirata' && !isl.isSafeZone) {
+    // Even dangerous pirate islands sometimes harbor a black-market scrapper or cartographer near the coast
+    if (hash2D(cx, cy, 911) < 0.65) return [];
+  }
+  const roles: WorldNpcRole[] = [];
+  if (cx === 1 && cy === 0) {
+    roles.push('mercader', 'armero');
+  } else if (cx === 0 && cy === -1) {
+    roles.push('forjador', 'chatarrero');
+  } else if (cx === -1 && cy === 0) {
+    roles.push('cartografo', 'mercader');
+  } else if (cx === 0 && cy === 1) {
+    roles.push('chatarrero', 'alquimista');
+  } else if (isl.isSafeZone) {
+    roles.push('armero', hash2D(cx, cy, 919) > 0.42 ? 'forjador' : 'mercader', 'alquimista');
+  } else if (isl.biome === 'abisal' || isl.biome === 'volcanica') {
+    if (hash2D(cx, cy, 929) > 0.35) roles.push('forjador');
+    if (hash2D(cx, cy, 937) > 0.55) roles.push('alquimista');
+  } else if (isl.biome === 'minera' || isl.biome === 'chatarra') {
+    if (hash2D(cx, cy, 941) > 0.38) roles.push('armero');
+    if (hash2D(cx, cy, 947) > 0.45) roles.push('chatarrero');
+  } else if (isl.biome === 'zombie') {
+    if (hash2D(cx, cy, 953) > 0.5) roles.push('alquimista');
+  } else {
+    const roll = hash2D(cx, cy, 967);
+    if (roll > 0.72) roles.push('forjador');
+    else if (roll > 0.48) roles.push('armero');
+    else if (roll > 0.25) roles.push('mercader');
+    else roles.push('cartografo');
+  }
+
+  return roles.map((role, idx) => {
+    const cfg = WORLD_NPC_CATALOG[role];
+    const nameIdx = Math.floor(hash2D(cx, cy, 971 + idx * 13) * cfg.names.length);
+    const angle = hash2D(cx, cy, 983 + idx * 17) * Math.PI * 2;
+    const dist = isl.radius * (0.34 + idx * 0.18);
+    return {
+      id: `wnpc_${isl.id}_${role}`,
+      role,
+      name: cfg.names[nameIdx],
+      title: cfg.title,
+      islandId: isl.id,
+      islandName: isl.name,
+      x: isl.x + Math.cos(angle) * dist,
+      y: isl.y + Math.sin(angle) * dist,
+      color: cfg.color,
+      hatColor: cfg.hatColor,
+      specialty: cfg.specialty,
+      greeting: cfg.greeting,
+      discovered: Boolean(isl.discovered),
+    };
+  });
 }

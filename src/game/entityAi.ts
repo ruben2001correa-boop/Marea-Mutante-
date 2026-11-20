@@ -9,6 +9,7 @@ import type {
   SurvivorDef,
   SurvivorState,
 } from './types';
+import { hasWarshipPassive } from './constants';
 
 export interface CrewHumanAiDecision {
   targetIndex: number;
@@ -58,6 +59,16 @@ const PIRATE_BARKS = {
     '¡Mis hombres tienen hambre y tu navío será nuestra cena!',
     '¡Fuego a discreción! ¡Partan ese timón en dos!',
   ],
+  hacker: [
+    '¡Inyectando virus en tus torretas y radio naval!',
+    '¡Tu energía y oro ahora pasan a mi servidor pirata!',
+    '¡Firewall roto! ¡Apagando sistemas del buque!',
+  ],
+  zombie: [
+    'Grrrhh... ¡carne fresca!',
+    '¡Braaaains... sal y sangre!',
+    'Raaagh... ¡no huyas del muelle maldito!',
+  ],
 };
 
 const CREW_CALLOUTS = {
@@ -73,6 +84,14 @@ const CREW_CALLOUTS = {
     '¡Piratas intentando abordar la cubierta!',
     '¡Defiendan el timón, vienen encima!',
   ],
+  hacker: [
+    '¡Alerta! ¡Un Hacker enemigo intenta sabotear nuestras torretas!',
+    '¡Bajen a ese cibercorsario antes de que drene el oro!',
+  ],
+  zombie: [
+    '¡Zombis mutantes saliendo de la costa! ¡Disparen!',
+    '¡No dejen que esos muertos vivientes suban a bordo!',
+  ],
   monster: [
     '¡Bestia mutante en el agua! ¡Apuntando!',
     '¡Fuego sobre ese depredador antes de que golpee el casco!',
@@ -87,12 +106,13 @@ function pick<T>(arr: T[]): T {
  * IA HUMANA (Tripulación): Evalúa prioridad táctica de blancos, moral emocional y avisos de combate.
  */
 export function evaluateCrewHumanAi(
-  sv: SurvivorState,
+  _sv: SurvivorState,
   def: SurvivorDef,
   npcMood: NpcMoodState | undefined,
   enemies: EnemyEntity[],
   raft: RaftEntity,
-  halfRaft: number
+  halfRaft: number,
+  state?: PersistentState
 ): CrewHumanAiDecision {
   const mood = npcMood?.mood || 'equilibrio';
   let dmgMult = 1;
@@ -118,9 +138,13 @@ export function evaluateCrewHumanAi(
     cdMult = 1.22;
   }
 
-  // Affinity slightly improves coordination
   const affinityBonus = Math.max(-0.08, Math.min(0.16, (npcMood?.affinity || 0) * 0.002));
   dmgMult += affinityBonus;
+
+  if (state && hasWarshipPassive(state, 'wp_cubierta_tripulacion')) {
+    dmgMult *= 1.22;
+    cdMult *= 0.82;
+  }
 
   const reach = def.attackRange + halfRaft * 0.45;
   let bestIdx = -1;
@@ -129,30 +153,36 @@ export function evaluateCrewHumanAi(
 
   for (let i = 0; i < enemies.length; i++) {
     const e = enemies[i];
-    if (e.isLeviathan) continue;
+    if (e.isLeviathan && !e.provoked) continue;
     const dist = Math.hypot(e.x - raft.x, e.y - raft.y);
     if (dist > reach) continue;
 
     let priority = 200 - dist * 0.45;
     if (e.isThief && (e.stolenBag || e.stealProgress > 0)) {
       priority += 280;
+    } else if (e.isHacker) {
+      priority += 245;
     } else if (e.boardedRaft) {
       priority += 210;
     } else if (e.kind === 'bandit_gunner') {
       priority += 140;
     } else if (e.isBoss) {
       priority += 130;
+    } else if (e.isZombie) {
+      priority += 120;
     } else if (e.isLargeMonster) {
       priority += 110;
     }
     if (e.hp / Math.max(1, e.maxHp) < 0.35) {
-      priority += 60; // Focus finish wounded threats
+      priority += 60;
     }
 
     if (priority > bestScore) {
       bestScore = priority;
       bestIdx = i;
       if (e.isThief) calloutKind = 'thief';
+      else if (e.isHacker) calloutKind = 'hacker';
+      else if (e.isZombie) calloutKind = 'zombie';
       else if (e.kind === 'bandit_gunner') calloutKind = 'gunner';
       else if (e.boardedRaft || e.isBandit) calloutKind = 'boarder';
       else calloutKind = 'monster';
@@ -171,7 +201,7 @@ export function evaluateCrewHumanAi(
 }
 
 /**
- * IA HUMANA (Piratas y Bandidos): Flanqueo, cobertura lateral, robo oportunista, huida táctica y diálogos.
+ * IA HUMANA (Piratas, Bandidos, Hackers & Zombis)
  */
 export function computePirateHumanAi(
   e: EnemyEntity,
@@ -200,13 +230,13 @@ export function computePirateHumanAi(
   const distToPl = Math.hypot(pl.x - e.x, pl.y - e.y) || 1;
   const hpRatio = e.hp / Math.max(1, e.maxHp);
   const nearbyAllies = allEnemies.filter(
-    (other) => other.id !== e.id && other.isBandit && Math.hypot(other.x - e.x, other.y - e.y) < 260
+    (other) => other.id !== e.id && (other.isBandit || other.isZombie || other.isHacker) && Math.hypot(other.x - e.x, other.y - e.y) < 260
   ).length;
 
   let barkText: string | undefined;
   let barkColor = '#fca5a5';
 
-  // 1. Stealth/Shelter deterrence
+  // 1. Stealth/Shelter/SafeZone deterrence
   if (protectedNow && !e.isBoss) {
     e.aiState = 'flee';
     e.stealProgress = 0;
@@ -214,6 +244,70 @@ export function computePirateHumanAi(
       targetX: e.x + (e.x - pl.x),
       targetY: e.y + (e.y - pl.y),
       speedMult: 0.95,
+    };
+  }
+
+  // Zombie AI: Relentless horde shambling or charging (spitters keep mid distance)
+  if (e.isZombie) {
+    if (e.aiBarkCd <= 0 && distToPl < 300 && Math.random() < 0.18) {
+      e.aiBarkCd = 11;
+      barkText = pick(PIRATE_BARKS.zombie);
+      barkColor = '#84cc16';
+    }
+    if (e.kind === 'zombie_spitter' && distToPl > 130 && distToPl < 280) {
+      const ang = Math.atan2(pl.y - e.y, pl.x - e.x);
+      const tang = ang + (Math.PI / 2) * e.strafeDir;
+      return {
+        targetX: e.x + Math.cos(tang) * 100,
+        targetY: e.y + Math.sin(tang) * 100,
+        speedMult: 0.85,
+        barkText,
+        barkColor,
+      };
+    }
+    return {
+      targetX: pl.x,
+      targetY: pl.y,
+      speedMult: e.kind === 'zombie_brute' ? 0.92 : 1.08,
+      barkText,
+      barkColor,
+    };
+  }
+
+  // Hacker AI: Jammer & Siphoner kite around the ship at mid-range to disrupt turrets/drain resources
+  if (e.isHacker) {
+    if (e.aiBarkCd <= 0 && distToPl < 360 && Math.random() < 0.25) {
+      e.aiBarkCd = 10;
+      barkText = pick(PIRATE_BARKS.hacker);
+      barkColor = '#22d3ee';
+    }
+    const angToRaft = Math.atan2(raft.y - e.y, raft.x - e.x);
+    const tang = angToRaft + (Math.PI / 2) * e.strafeDir;
+    const distRaft = Math.hypot(raft.x - e.x, raft.y - e.y);
+    if (e.kind === 'hacker_siphoner' && distRaft > 180) {
+      return {
+        targetX: raft.x + Math.cos(tang) * 70,
+        targetY: raft.y + Math.sin(tang) * 70,
+        speedMult: 1.15,
+        barkText,
+        barkColor,
+      };
+    }
+    if (distToPl < 250) {
+      return {
+        targetX: e.x + Math.cos(tang) * 135 - Math.cos(angToRaft) * 50,
+        targetY: e.y + Math.sin(tang) * 135 - Math.sin(angToRaft) * 50,
+        speedMult: 1.05,
+        barkText,
+        barkColor,
+      };
+    }
+    return {
+      targetX: pl.x + Math.cos(tang) * 90,
+      targetY: pl.y + Math.sin(tang) * 90,
+      speedMult: 1.06,
+      barkText,
+      barkColor,
     };
   }
 
@@ -234,7 +328,7 @@ export function computePirateHumanAi(
     };
   }
 
-  // 3. Low-HP human self-preservation retreat (grunts/gunners may panic briefly, especially vs lokito/soberbia captain)
+  // 3. Low-HP human self-preservation retreat
   const captainScary = state.vitals?.mood === 'lokito' || state.vitals?.mood === 'soberbia';
   if (!e.isBoss && hpRatio < (captainScary ? 0.3 : 0.2) && nearbyAllies === 0 && distToPl < 240) {
     e.aiState = 'flee';
@@ -252,7 +346,7 @@ export function computePirateHumanAi(
     };
   }
 
-  // 4. Ranged Gunner Human AI: Kites & strafes at optimal shooting band (185 - 275px)
+  // 4. Ranged Gunner Human AI
   if (e.kind === 'bandit_gunner') {
     const angToPl = Math.atan2(pl.y - e.y, pl.x - e.x);
     const tangentAng = angToPl + (Math.PI / 2) * e.strafeDir;
@@ -264,7 +358,6 @@ export function computePirateHumanAi(
     }
 
     if (distToPl < 145) {
-      // Backpedal while strafing
       return {
         targetX: e.x - Math.cos(angToPl) * 140 + Math.cos(tangentAng) * 75,
         targetY: e.y - Math.sin(angToPl) * 140 + Math.sin(tangentAng) * 75,
@@ -274,7 +367,6 @@ export function computePirateHumanAi(
       };
     }
     if (distToPl <= 275) {
-      // Strafe laterally for tactical fire
       return {
         targetX: e.x + Math.cos(tangentAng) * 120,
         targetY: e.y + Math.sin(tangentAng) * 120,
@@ -283,7 +375,6 @@ export function computePirateHumanAi(
         barkColor,
       };
     }
-    // Advance diagonally toward shooting range
     return {
       targetX: pl.x + Math.cos(tangentAng) * 85,
       targetY: pl.y + Math.sin(tangentAng) * 85,
@@ -303,7 +394,7 @@ export function computePirateHumanAi(
     };
   }
 
-  // 6. Melee Grunt & Pirate Boss: Diagonal flanking + pack morale boost
+  // 6. Melee Grunt & Pirate Boss
   e.aiState = distToPl < halfRaft + 80 ? 'board' : 'flank';
   const ang = Math.atan2(pl.y - e.y, pl.x - e.x);
   const weave = distToPl > 90 ? Math.sin(ctx.worldTime * 3.1 + e.id) * 58 : 0;
@@ -326,7 +417,7 @@ export function computePirateHumanAi(
 }
 
 /**
- * IA DE MONSTRUOS (Depredadores Marinos): Acecho en círculo, frenesí sangriento, embestidas y patrulla abisal.
+ * IA DE MONSTRUOS (Depredadores Marinos)
  */
 export function computeSeaMonsterAi(
   e: EnemyEntity,
@@ -358,7 +449,6 @@ export function computeSeaMonsterAi(
     };
   }
 
-  // Shark AI: Stalk -> Predator Lunge -> Brief Recovery (Blood Frenzy when player/raft injured)
   if (e.kind === 'shark') {
     const bloodFrenzy = state.hp / Math.max(1, state.maxHp) < 0.55 || raft.hp / Math.max(1, raft.maxHp) < 0.5;
     if (e.aiTimer <= 0) {
@@ -383,7 +473,6 @@ export function computeSeaMonsterAi(
       };
     }
 
-    // Circle around prey before lunging
     const orbitDist = 175;
     return {
       targetX: pl.x - Math.cos(ang) * orbitDist + Math.cos(tangent) * 140,
@@ -392,7 +481,6 @@ export function computeSeaMonsterAi(
     };
   }
 
-  // Kraken AI: Encircles hull with tentacles and performs heavy slams
   if (e.kind === 'kraken') {
     if (e.aiTimer <= 0) {
       e.aiState = e.aiState === 'lunge' ? 'flank' : 'lunge';
@@ -412,7 +500,6 @@ export function computeSeaMonsterAi(
     };
   }
 
-  // Crab & Jelly: Rhythmic aquatic surge / pack drift
   e.aiState = Math.sin(worldTime * 2.4 + e.id) > 0.35 ? 'lunge' : 'stalk';
   const pulseMult = e.aiState === 'lunge' ? 1.24 : 0.84;
   const sway = Math.sin(worldTime * 3.0 + e.id) * 44;
@@ -424,7 +511,7 @@ export function computeSeaMonsterAi(
 }
 
 /**
- * IA DE MONSTRUOS / FAUNA DE ISLA: Caza en manada (lobos), embestidas (jabalíes) y fauna huidiza.
+ * IA DE MONSTRUOS / FAUNA DE ISLA
  */
 export function computeWildlifeMonsterAi(
   a: AnimalEntity,
@@ -441,7 +528,6 @@ export function computeWildlifeMonsterAi(
   const distPl = Math.hypot(pl.x - a.x, pl.y - a.y) || 1;
   const ang = Math.atan2(pl.y - a.y, pl.x - a.x);
 
-  // Tameable peaceful animals graze, or gently shy away if rushed without stealth
   if (!a.isWild) {
     if (!stealthActive && distPl < 72 && Math.hypot(pl.vx, pl.vy) > 95) {
       a.aiState = 'flee';
@@ -466,7 +552,6 @@ export function computeWildlifeMonsterAi(
     return { vx: a.vx, vy: a.vy, gaitMult: 1 };
   }
 
-  // Wild Monsters (wolf, boar, scorpion)
   if (distPl < 155 && !pl.inShelter && !stealthActive) {
     if (a.kind === 'boar') {
       if (a.aiTimer <= 0) {
@@ -499,7 +584,6 @@ export function computeWildlifeMonsterAi(
       };
     }
 
-    // Scorpion ambush darting
     a.aiState = 'stalk';
     return {
       vx: Math.cos(ang) * 78,
@@ -508,7 +592,6 @@ export function computeWildlifeMonsterAi(
     };
   }
 
-  // Calm island wandering for idle wild animals
   a.aiState = 'graze';
   a.wanderT -= dt;
   if (a.wanderT <= 0) {
