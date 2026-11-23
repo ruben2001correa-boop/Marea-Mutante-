@@ -1,4 +1,4 @@
-import { Check, Gamepad2, Globe, MonitorSmartphone, RotateCcw, Sliders, Volume2, VolumeX, X } from 'lucide-react';
+import { Check, Gamepad2, Globe, Maximize2, Minimize2, MonitorSmartphone, RotateCcw, Sliders, Volume2, VolumeX, X } from 'lucide-react';
 import { DEFAULT_GAME_SETTINGS } from '../game/constants';
 import { UPCOMING_LANGUAGES, t, type SupportedLanguage } from '../game/i18n';
 import type { GameSettings } from '../game/types';
@@ -10,6 +10,9 @@ interface SettingsModalProps {
   language: SupportedLanguage;
   settings: GameSettings;
   gamepadConnected?: boolean;
+  isFullscreen?: boolean;
+  fullscreenSupported?: boolean;
+  onToggleFullscreen?: () => void;
   onClose: () => void;
   onToggleSound: () => void;
   onChangeLanguage: (lang: SupportedLanguage) => void;
@@ -23,6 +26,9 @@ export function SettingsModal({
   language,
   settings,
   gamepadConnected = false,
+  isFullscreen = false,
+  fullscreenSupported = false,
+  onToggleFullscreen,
   onClose,
   onToggleSound,
   onChangeLanguage,
@@ -305,6 +311,57 @@ export function SettingsModal({
                 {settings.twinStickMobile ? 'ACTIVO' : 'OFF'}
               </span>
             </button>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+              {fullscreenSupported && onToggleFullscreen && (
+                <button
+                  type="button"
+                  onClick={onToggleFullscreen}
+                  className={`min-h-[46px] px-3 py-2 rounded-xl border flex items-center justify-between gap-2 cursor-pointer ${
+                    isFullscreen
+                      ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-100'
+                      : 'bg-[#071522] border-[#22476a] hover:border-sky-400/60 text-slate-100'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 text-left">
+                    {isFullscreen ? (
+                      <Minimize2 className="w-4 h-4 text-emerald-300 shrink-0" />
+                    ) : (
+                      <Maximize2 className="w-4 h-4 text-sky-300 shrink-0" />
+                    )}
+                    <div>
+                      <div className="text-xs font-bold">
+                        {isFullscreen ? t(language, 'exitFullscreen') : t(language, 'fullscreen')}
+                      </div>
+                      <div className="text-[10px] text-slate-400">Oculta barra de navegación</div>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded bg-black/30 text-[10px] font-bold">
+                    {isFullscreen ? 'ON' : 'OFF'}
+                  </span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => onChangeSettings({ autoFullscreen: !settings.autoFullscreen })}
+                className="min-h-[46px] px-3 py-2 rounded-xl bg-[#071522] border border-[#22476a] hover:border-emerald-400/60 flex items-center justify-between gap-2 cursor-pointer"
+              >
+                <div className="text-left">
+                  <div className="text-xs font-bold text-slate-100">{t(language, 'autoFullscreen')}</div>
+                  <div className="text-[10px] text-slate-400">Activar automáticamente al jugar</div>
+                </div>
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold shrink-0 ${
+                    settings.autoFullscreen
+                      ? 'bg-emerald-500/25 text-emerald-200 border border-emerald-400/50'
+                      : 'bg-slate-800 text-slate-400'
+                  }`}
+                >
+                  {settings.autoFullscreen ? 'ON' : 'OFF'}
+                </span>
+              </button>
+            </div>
           </div>
         </div>
 

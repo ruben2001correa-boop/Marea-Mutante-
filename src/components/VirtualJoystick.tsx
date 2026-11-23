@@ -34,12 +34,23 @@ export function VirtualJoystick({
     let dx = clientX - cx;
     let dy = clientY - cy;
     const dist = Math.hypot(dx, dy);
-    if (dist > maxRadius) {
-      dx = (dx / dist) * maxRadius;
-      dy = (dy / dist) * maxRadius;
+    const safeRadius = Math.max(1, maxRadius);
+    if (dist > safeRadius) {
+      dx = (dx / dist) * safeRadius;
+      dy = (dy / dist) * safeRadius;
     }
     setKnob({ x: dx, y: dy, active: true });
-    onVector(dx / Math.max(1, maxRadius), dy / Math.max(1, maxRadius));
+
+    const norm = Math.min(1, dist / safeRadius);
+    if (norm < 0.1) {
+      onVector(0, 0);
+      return;
+    }
+    // Ramp from 0.65 at deadzone edge to full 1.0 speed by 45% thumb throw so movement never feels sluggish
+    const speedMag = Math.min(1, 0.65 + ((norm - 0.1) / 0.35) * 0.35);
+    const ux = dx / Math.max(0.0001, Math.min(dist, safeRadius));
+    const uy = dy / Math.max(0.0001, Math.min(dist, safeRadius));
+    onVector(ux * speedMag, uy * speedMag);
   };
 
   const resetStick = () => {
@@ -60,7 +71,11 @@ export function VirtualJoystick({
         e.preventDefault();
         e.stopPropagation();
         pointerIdRef.current = e.pointerId;
-        e.currentTarget.setPointerCapture(e.pointerId);
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          // Ignore environments where pointer capture is unavailable
+        }
         updateFromClient(e.clientX, e.clientY);
       }}
       onPointerMove={(e) => {
@@ -74,6 +89,7 @@ export function VirtualJoystick({
         resetStick();
       }}
       onPointerCancel={resetStick}
+      onLostPointerCapture={resetStick}
       style={{
         width: `${baseSize}px`,
         height: `${baseSize}px`,

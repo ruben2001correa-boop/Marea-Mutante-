@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { computeSurvivalScore } from '../game/constants';
-import { COUNTRY_OPTIONS } from '../game/socialAndKingdoms';
+import { COUNTRY_OPTIONS, getSeaRankInfo } from '../game/socialAndKingdoms';
 import type { LeaderboardEntry, PersistentState } from '../game/types';
 import { CustomSelect } from './CustomSelect';
 import { BRE_B_KEY, GAME_CREATOR_NAME } from './DonationModal';
@@ -103,6 +103,8 @@ export function ProfileLeaderboardModal({
     () => leaderboard.findIndex((p) => p.id === state.playerProfile.id),
     [leaderboard, state.playerProfile.id]
   );
+  const myRankNum = myIndex >= 0 ? myIndex + 1 : null;
+  const mySeaRank = getSeaRankInfo(myRankNum);
   const abovePlayer = myIndex > 0 ? leaderboard[myIndex - 1] : null;
   const ptsToClimb = abovePlayer ? Math.max(1, abovePlayer.maxScore - maxScore + 1) : 0;
 
@@ -292,24 +294,32 @@ export function ProfileLeaderboardModal({
             {/* Left: Player Profile & Motivation Card */}
             <div className="lg:col-span-5 space-y-3">
               <div className="rounded-xl bg-gradient-to-br from-[#102b44] to-[#081928] border border-amber-400/55 p-3.5 space-y-2 shadow-lg">
-                <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
                   <span className="inline-flex items-center gap-1.5 text-xs font-extrabold text-amber-300">
                     <Crown className="w-4 h-4" />
                     <span>
                       {myIndex >= 0
-                        ? `Tu Puesto Mundial: #${myIndex + 1}`
+                        ? `Tu Puesto en el Mar: #${myIndex + 1}`
                         : 'Clasifícate en el Ranking Mundial'}
                     </span>
                   </span>
-                  <span className="font-mono-num text-[11px] font-bold text-sky-300">
-                    {maxScore.toLocaleString()} pts
+                  <span
+                    className={`px-2 py-0.5 rounded border text-[10px] font-extrabold ${mySeaRank.bgClass} ${mySeaRank.borderClass} ${mySeaRank.textClass}`}
+                  >
+                    {mySeaRank.icon} {mySeaRank.label}
                   </span>
+                </div>
+                <div className="text-[10px] text-slate-300">
+                  Jerarquía del Ranking: <b className="text-amber-300">#1 Rey de los Piratas</b> ·{' '}
+                  <b className="text-rose-300">#2–5 Emperador del Mar</b> ·{' '}
+                  <b className="text-purple-300">#6–12 Guerrero del Mar</b> ·{' '}
+                  <b className="text-sky-300">#13+ Súper Nova</b> (aparte de tu Título equipado).
                 </div>
                 <p className="text-[11px] text-slate-200 leading-snug">
                   {myIndex === 0
-                    ? '¡Eres el #1 del océano! Tus hazañas encienden las llamas máximas de tu nombre.'
+                    ? '¡Eres el #1 Rey de los Piratas del océano! Tus hazañas encienden las llamas máximas de tu nombre.'
                     : abovePlayer
-                      ? `Te faltan ${ptsToClimb.toLocaleString()} pts para superar a ${abovePlayer.name} (#${myIndex}).`
+                      ? `Te faltan ${ptsToClimb.toLocaleString()} pts para superar a ${abovePlayer.name} (#${myIndex}) · Récord: ${maxScore.toLocaleString()} pts.`
                       : 'Guarda tu Nombre Gamer y País para inscribirte y subir puestos en el ranking mundial.'}
                 </p>
                 <button
@@ -419,7 +429,9 @@ export function ProfileLeaderboardModal({
             <div className="lg:col-span-7 flex flex-col min-h-0 space-y-2.5">
               {top3.length > 0 && (
                 <div className="grid grid-cols-3 gap-2">
-                  {top3.map((leader, idx) => (
+                  {top3.map((leader, idx) => {
+                    const seaRank = getSeaRankInfo(idx + 1);
+                    return (
                     <button
                       key={leader.id}
                       type="button"
@@ -445,14 +457,18 @@ export function ProfileLeaderboardModal({
                           {leader.name}
                         </span>
                       </div>
-                      <div className="text-[10px] text-slate-300 truncate">
-                        {leader.titleName || 'Náufrago'} · {leader.achievementsCount ?? 0}🏆
+                      <div className={`text-[10px] font-bold truncate ${seaRank.textClass}`}>
+                        {seaRank.icon} {seaRank.label}
+                      </div>
+                      <div className="text-[10px] text-slate-400 truncate">
+                        Tít: {leader.titleName || 'Náufrago'} · {leader.achievementsCount ?? 0}🏆
                       </div>
                       <div className="font-mono-num text-xs font-extrabold text-amber-300 mt-1">
                         {leader.maxScore.toLocaleString()} pts
                       </div>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
@@ -529,7 +545,7 @@ export function ProfileLeaderboardModal({
                           </span>
                         </div>
                         <div className="text-[11px] text-amber-200">
-                          Título: <b>{inspectedEntry.titleName || 'Náufrago'}</b> · País: {inspectedEntry.country} · {inspectedEntry.achievementsCount ?? 0} logros
+                          Puesto en el Mar: <b className={getSeaRankInfo(leaderboard.findIndex((p) => p.id === inspectedEntry.id) + 1).textClass}>{getSeaRankInfo(leaderboard.findIndex((p) => p.id === inspectedEntry.id) + 1).icon} {getSeaRankInfo(leaderboard.findIndex((p) => p.id === inspectedEntry.id) + 1).label}</b> · Título: <b>{inspectedEntry.titleName || 'Náufrago'}</b> · País: {inspectedEntry.country}
                         </div>
                       </div>
                     </div>
@@ -591,6 +607,7 @@ export function ProfileLeaderboardModal({
                     ) : (
                       visibleRows.map((entry) => {
                         const rank = leaderboard.findIndex((p) => p.id === entry.id) + 1;
+                        const seaRank = getSeaRankInfo(rank);
                         const isSelf = entry.id === state.playerProfile.id;
                         const isSelected = inspectedId === entry.id;
                         const flame = entry.flameTier || 0;
@@ -638,7 +655,7 @@ export function ProfileLeaderboardModal({
                                 )}
                               </div>
                               <div className="font-mono-num text-[10px] text-slate-400 pl-3.5 truncate">
-                                {entry.titleName || 'Náufrago'} · {entry.achievementsCount ?? 0}🏆 · {entry.titlesCount ?? 1}🎖️
+                                <span className={`font-bold ${seaRank.textClass}`}>{seaRank.icon} {seaRank.label}</span> · {entry.titleName || 'Náufrago'} · {entry.achievementsCount ?? 0}🏆
                               </div>
                             </div>
                             <div className="col-span-2 text-center font-mono-num text-[11px] font-bold text-sky-300">

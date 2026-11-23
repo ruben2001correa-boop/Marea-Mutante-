@@ -70,6 +70,8 @@ export interface WorldDialogueContext {
   nearLeviathan: boolean;
   missionTitle?: string;
   islandsVisited: number;
+  islandName?: string;
+  islandCulture?: string;
   npcAnimState?: NpcAnimState;
   npcActivityLabel?: string;
   npcLiveStatesSummary?: Array<{
@@ -966,6 +968,39 @@ const TOPIC_TEMPLATES: TopicTemplate[] = [
   },
 ];
 
+function buildVegaSecretMarriageChoice(
+  npcId: string,
+  state: PersistentState
+): NpcDialogueChoice | null {
+  if (npcId !== 'vega' || state.vegaMarried) return null;
+  const mood = getNpcMoodState(state, 'vega');
+  if ((mood.affinity || 0) < 100) return null;
+  return {
+    id: 'propose_vega_marriage',
+    toneLabel: '💍 Confesar amor y proponer matrimonio',
+    toneKind: 'empatica',
+    playerText:
+      'Vega, después de todo lo que sobrevivimos juntos... ¿quieres casarte conmigo y mandar este mar a nuestro lado?',
+    npcReply:
+      '¡Sí, mil veces sí, Amorcito Hermoso! Pensé que jamás darías el paso. Desde hoy mi espada, mi brújula y cada disparo de protección son tuyos para siempre. ❤️',
+    npcNextMood: 'felicidad',
+    affinityDelta: 0,
+    mentalDelta: 25,
+    playerNextMood: 'felicidad',
+    outcomeNote: '💍 ¡Casados! Vega ahora te llama "Amorcito Hermoso" y lanzará un ataque protector cada 10s',
+  };
+}
+
+function withVegaSecretOption(
+  choices: NpcDialogueChoice[],
+  npcId: string,
+  state: PersistentState
+): NpcDialogueChoice[] {
+  const secret = buildVegaSecretMarriageChoice(npcId, state);
+  if (!secret) return choices;
+  return [secret, ...choices.filter((c) => c.id !== 'propose_vega_marriage')].slice(0, 4);
+}
+
 function buildContextualGreeting(
   npcId: string,
   npcName: string,
@@ -975,6 +1010,10 @@ function buildContextualGreeting(
 ): string {
   const v = playerState.vitals || createInitialVitals();
   const moodLabel = MOOD_META[npcMood]?.shortLabel || 'Sereno';
+
+  if (npcId === 'vega' && playerState.vegaMarried) {
+    return `[${moodLabel}] «Hola, Amorcito Hermoso ❤️. Tengo el radar y mi rayo protector cargados para cuidarte cada diez segundos en estas aguas.»`;
+  }
 
   if (v.mentalHealth <= 28 || v.mood === 'lokito') {
     return `[${moodLabel}] «Capitán... tienes la mirada perdida y murmuras cosas sin sentido. ¡Respira hondo y háblame! Estoy aquí para traerte de vuelta.»`;
@@ -1064,7 +1103,7 @@ export function startNpcConversation(
     wNpc && Math.random() < 0.65
       ? `[${MOOD_META[npcMood.mood]?.shortLabel || 'Sereno'}] «${wNpc.greeting}»`
       : buildContextualGreeting(moodKey, npcName, npcMood.mood, state, world);
-  const choices = topic.buildChoices(npcName, npcMood.mood, state);
+  const choices = withVegaSecretOption(topic.buildChoices(npcName, npcMood.mood, state), npcId, state);
 
   return {
     npcId,
@@ -1129,12 +1168,26 @@ export function chooseNpcDialogueOption(
   if (!choice || session.stage !== 'choosing') return session;
 
   const npcMood = getNpcMoodState(state, session.npcId);
+  const isVegaMarriageChoice =
+    choice.id === 'propose_vega_marriage' &&
+    session.npcId === 'vega' &&
+    npcMood.affinity >= 100 &&
+    !state.vegaMarried;
+
   npcMood.affinity = Math.max(-100, Math.min(100, npcMood.affinity + choice.affinityDelta));
   npcMood.mood = choice.npcNextMood;
-  npcMood.reason =
-    choice.affinityDelta > 0
+  npcMood.reason = isVegaMarriageChoice
+    ? '¡Esposa del capitán! Llamándote Amorcito Hermoso ❤️'
+    : choice.affinityDelta > 0
       ? 'Tu conversación mejoró su ánimo y confianza.'
       : 'Sintió tensión o arrogancia en tus palabras.';
+
+  if (isVegaMarriageChoice) {
+    state.vegaMarried = true;
+    state.family.married = true;
+    state.family.partnerId = 'vega';
+    state.fame += 60;
+  }
 
   const v = state.vitals || createInitialVitals();
   state.vitals = v;
@@ -1161,9 +1214,17 @@ export function chooseNpcDialogueOption(
       moodBadge: MOOD_META[choice.npcNextMood].shortLabel,
     },
   ];
+  if (isVegaMarriageChoice) {
+    nextTranscript.push({
+      speaker: 'sistema',
+      name: '💍 Vínculo Secreto Desbloqueado',
+      text: 'Vega ahora es tu esposa y te llama "Amorcito Hermoso". Pasiva activa: cada 10s dispara una descarga devastadora en toda la pantalla para protegerte.',
+    });
+  }
 
   return {
     ...session,
+    npcRole: isVegaMarriageChoice ? 'Esposa y Vice-Capitana ❤️' : session.npcRole,
     stage: 'reading_reply',
     latestReply: choice.npcReply,
     latestOutcomeNote: `${choice.outcomeNote} · ${session.npcName}: ${MOOD_META[choice.npcNextMood].shortLabel}`,
@@ -1231,7 +1292,11 @@ export function advanceNpcConversationAfterReply(
     const topic = remaining.length > 0 ? pick(remaining) : pick(TOPIC_TEMPLATES);
     const lines = topic.npcLines[npcMood.mood] || topic.npcLines.equilibrio;
     const prompt = pick(lines);
-    const choices = topic.buildChoices(session.npcName, npcMood.mood, state);
+    const choices = withVegaSecretOption(
+      topic.buildChoices(session.npcName, npcMood.mood, state),
+      session.npcId,
+      state
+    );
 
     const nextTranscript = [...session.transcript];
     if (milestone.systemEntry) nextTranscript.push(milestone.systemEntry);
@@ -1292,6 +1357,7 @@ interface AiApiResponsePayload {
     mentalDelta?: number;
     outcomeNote?: string;
     nextChoices?: AiApiChoiceRaw[];
+    triggersVegaMarriage?: boolean;
   };
 }
 
@@ -1332,7 +1398,7 @@ export async function requestAiNpcTurn(
 ): Promise<{ ok: boolean; session: NpcConversationSession }> {
   const npcMood = getNpcMoodState(state, session.npcId);
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 7000);
+  const timeoutId = window.setTimeout(() => controller.abort(), 24000);
   try {
     const res = await fetch('/api/ai/npc-chat', {
       method: 'POST',
@@ -1353,6 +1419,8 @@ export async function requestAiNpcTurn(
         transcript: session.transcript.slice(-6),
         turn: session.turn,
         playerMessage: playerMessage || '',
+        vegaAffinity100: session.npcId === 'vega' && npcMood.affinity >= 100 && !state.vegaMarried,
+        vegaMarried: Boolean(session.npcId === 'vega' && state.vegaMarried),
       }),
     });
 
@@ -1372,13 +1440,33 @@ export async function requestAiNpcTurn(
     const nextMood = sanitizeMood(d.npcNextMood);
     const affDelta = Math.max(-18, Math.min(18, Math.round(Number(d.affinityDelta) || 0)));
     const menDelta = Math.max(-12, Math.min(16, Math.round(Number(d.mentalDelta) || 0)));
-    const nextChoices = mapAiChoices(d.nextChoices, session.choices);
+    const mappedChoices = mapAiChoices(d.nextChoices, session.choices);
     const npcReplyText = String(d.npcReply || '...').trim();
+
+    let marriedJustNow = false;
+    if (
+      session.npcId === 'vega' &&
+      !state.vegaMarried &&
+      npcMood.affinity >= 100 &&
+      Boolean(d.triggersVegaMarriage)
+    ) {
+      state.vegaMarried = true;
+      state.family.married = true;
+      state.family.partnerId = 'vega';
+      state.fame += 60;
+      marriedJustNow = true;
+    }
+
+    const nextChoices = withVegaSecretOption(mappedChoices, session.npcId, state);
 
     if (playerMessage) {
       npcMood.affinity = Math.max(-100, Math.min(100, npcMood.affinity + affDelta));
       npcMood.mood = nextMood;
-      if (d.npcReason) npcMood.reason = String(d.npcReason).slice(0, 140);
+      if (marriedJustNow) {
+        npcMood.reason = '¡Esposa del capitán! Llamándote Amorcito Hermoso ❤️';
+      } else if (d.npcReason) {
+        npcMood.reason = String(d.npcReason).slice(0, 140);
+      }
       shiftPlayerMood(state, state.vitals.mood, menDelta, 55);
 
       const updatedTranscript: NpcTranscriptEntry[] = [
@@ -1396,6 +1484,13 @@ export async function requestAiNpcTurn(
           viaAi: true,
         },
       ];
+      if (marriedJustNow) {
+        updatedTranscript.push({
+          speaker: 'sistema',
+          name: '💍 Matrimonio Secreto con Vega',
+          text: '¡Conquistaste a la Vicecapitana Vega al 100%! Ahora te llama "Amorcito Hermoso" y desata un golpe protector en todo el mapa cada 10s.',
+        });
+      }
 
       const milestone = applyThreeTurnMilestoneIfDue(session, state, npcMood);
       if (milestone.systemEntry) updatedTranscript.push(milestone.systemEntry);
@@ -1404,11 +1499,14 @@ export async function requestAiNpcTurn(
         ok: true,
         session: {
           ...session,
+          npcRole: marriedJustNow || state.vegaMarried ? 'Esposa y Vice-Capitana ❤️' : session.npcRole,
           aiLoading: false,
           aiError: null,
           stage: 'reading_reply',
           latestReply: npcReplyText,
-          latestOutcomeNote: `${d.outcomeNote || 'Respuesta generada por IA'} · ${session.npcName}: ${MOOD_META[nextMood].shortLabel}`,
+          latestOutcomeNote: marriedJustNow
+            ? '💍 ¡Casados! Vega te llama "Amorcito Hermoso" y activa su protección cada 10s'
+            : `${d.outcomeNote || 'Respuesta generada por IA'} · ${session.npcName}: ${MOOD_META[nextMood].shortLabel}`,
           choices: nextChoices,
           transcript: updatedTranscript,
           milestoneClaimed: session.milestoneClaimed || milestone.claimedNow,
@@ -1449,7 +1547,7 @@ export async function requestAiNpcTurn(
         ...session,
         aiLoading: false,
         aiError: isAbort
-          ? 'La IA tardó demasiado (>7s). Puedes continuar con el diálogo narrativo.'
+          ? 'La IA tardó demasiado (>18s). Puedes continuar con el diálogo narrativo.'
           : err instanceof Error
             ? err.message
             : 'No se pudo conectar con la IA de diálogos.',
@@ -1466,7 +1564,7 @@ export async function requestAiAmbientBanter(
   worldContext: WorldDialogueContext
 ): Promise<Array<{ speaker: string; text: string }> | null> {
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), 7000);
+  const timeoutId = window.setTimeout(() => controller.abort(), 20000);
   try {
     const res = await fetch('/api/ai/ambient-banter', {
       method: 'POST',
@@ -1518,5 +1616,58 @@ export function shiftWorldNpcMoods(
       m.mood = 'equilibrio';
       m.reason = 'Descansado tras el relevo nocturno.';
     }
+  }
+}
+
+export interface DeathRoastTelemetry {
+  playerName: string;
+  causeKey: string;
+  attackerName: string;
+  day: number;
+  difficulty: string;
+  equippedWeapon: string;
+  unusedGui: number;
+  unusedVeg: number;
+  unusedPez: number;
+  unusedAgu: number;
+  nearbyEnemiesCount: number;
+  hunger: number;
+  thirst: number;
+  stamina: number;
+  onRaft: boolean;
+  bounty: number;
+}
+
+export async function requestAiDeathRoast(telemetry: DeathRoastTelemetry): Promise<{
+  headline: string;
+  roast: string;
+  facts: string[];
+  retryTaunt: string;
+} | null> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 16000);
+  try {
+    const res = await fetch('/api/ai/death-roast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify(telemetry),
+    });
+    if (!res.ok) return null;
+    const payload = await res.json();
+    if (!payload?.ok || !payload?.data) return null;
+    const d = payload.data;
+    return {
+      headline: String(d.headline || '').trim(),
+      roast: String(d.roast || '').trim(),
+      facts: Array.isArray(d.facts)
+        ? d.facts.map((f: unknown) => String(f || '').trim()).filter(Boolean).slice(0, 4)
+        : [],
+      retryTaunt: String(d.retryTaunt || '').trim(),
+    };
+  } catch {
+    return null;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
 }

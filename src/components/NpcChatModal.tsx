@@ -81,6 +81,11 @@ export function NpcChatModal({
                 <h2 className="font-display text-sm sm:text-base font-bold text-slate-50 truncate">
                   {session.npcName}
                 </h2>
+                {session.npcId === 'vega' && state.vegaMarried && (
+                  <span className="px-2 py-0.5 rounded-md border bg-pink-500/20 border-pink-400/60 text-[10px] font-extrabold text-pink-200">
+                    💍 Esposa
+                  </span>
+                )}
                 <span
                   className={`px-2 py-0.5 rounded-md border text-[10px] font-bold ${npcMeta.bgClass} ${npcMeta.borderClass} ${npcMeta.textClass}`}
                 >

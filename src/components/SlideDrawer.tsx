@@ -38,6 +38,7 @@ import {
   ROMANCE_CANDIDATES,
   TECH_PIECES_CATALOG,
   TITLES_CATALOG,
+  getMarineWantedLevel,
   getShipClassName,
 } from '../game/socialAndKingdoms';
 import {
@@ -45,6 +46,7 @@ import {
   WEAPON_MAP,
   getRarityColor,
   getRarityLabel,
+  getWeaponUnlockStatus,
   isNpcForgedRarity,
 } from '../game/weapons';
 import { WeaponIcon } from './WeaponIcon';
@@ -59,6 +61,13 @@ import type {
   SurvivorId,
   WorldNpcEntity,
 } from '../game/types';
+
+const AGE_ROMAN: Record<number, string> = {
+  1: 'I',
+  2: 'II',
+  3: 'III',
+  4: 'IV',
+};
 
 export type TradeAction =
   | 'sell_mad'
@@ -79,7 +88,15 @@ interface SlideDrawerProps {
   state: PersistentState;
   currentIslandId: string | null;
   currentIslandName: string | null;
-  discoveredIslands: Array<{ id: string; name: string; biome: string }>;
+  discoveredIslands: Array<{
+    id: string;
+    name: string;
+    biome: string;
+    cultureName?: string;
+    cultureEmblem?: string;
+    cultureColor?: string;
+    cultureTradition?: string;
+  }>;
   inShelter: boolean;
   nearbyVillage: IslandNode | null;
   nearbyWorldNpc?: WorldNpcEntity | null;
@@ -91,7 +108,17 @@ interface SlideDrawerProps {
   onRepairRaft: () => void;
   onCookStew: () => void;
   onCraftConsumable: (kind: 'repelente' | 'hamaca') => void;
-  onUpgradeRaft: (part: 'level' | 'engineLevel' | 'turretLevel' | 'distillerLevel' | 'solarLevel') => void;
+  onUpgradeRaft: (
+    part:
+      | 'level'
+      | 'engineLevel'
+      | 'turretLevel'
+      | 'distillerLevel'
+      | 'solarLevel'
+      | 'missileLevel'
+      | 'shieldLevel'
+      | 'droneLevel'
+  ) => void;
   onUnlockWarshipPassive?: (passiveId: string) => void;
   onUnlockNuclearShield?: () => void;
   onCraftRadiationSuit?: () => void;
@@ -100,7 +127,7 @@ interface SlideDrawerProps {
   onDrinkAlcohol?: () => void;
   onBuildOnIsland: (kind: IslandStructure['kind']) => void;
   onUpgradeAge?: () => void;
-  onTrainIslandUnit?: (kind: 'villager' | 'guard' | 'patrol_ship') => void;
+  onTrainIslandUnit?: (kind: 'villager' | 'farmer' | 'guard' | 'patrol_ship') => void;
   onResearchAoeTech?: (techId: string) => void;
   onRepairStructures?: () => void;
   onFoundSettlement: (name: string, banner: string) => void;
@@ -355,8 +382,8 @@ export function SlideDrawer({
                 <b className="text-cyan-300">Divinas</b> solo las forja un <b className="text-orange-300">Armero</b> o{' '}
                 <b className="text-cyan-300">Forjador</b> del mapa.
                 {nearestForgeNpc
-                  ? ` Más cercano: ${nearestForgeNpc.name} (${Math.round(nearestForgeNpc.x)}, ${Math.round(nearestForgeNpc.y)}).`
-                  : ' Visita el Pontón Forja del Alba en (360, -250).'}
+                  ? ` Más cercano: ${nearestForgeNpc.name} en ${nearestForgeNpc.islandName} (${Math.round(nearestForgeNpc.x)}, ${Math.round(nearestForgeNpc.y)}).`
+                  : ' Los Portones Forja del Alba están en las islas (o construye el tuyo en la pestaña Islas).'}
               </p>
               {nearbyWorldNpc &&
                 (nearbyWorldNpc.role === 'armero' || nearbyWorldNpc.role === 'forjador') &&
@@ -427,9 +454,10 @@ export function SlideDrawer({
               const owned = state.ownedWeapons.includes(w.id);
               const inHotbarIdx = state.hotbar.indexOf(w.id);
               const isEquipped = inHotbarIdx === state.equippedSlot;
+              const tierStatus = getWeaponUnlockStatus(w.id, state.ownedWeapons);
               const npcRequired = isNpcForgedRarity(w.rarity);
               const magicLocked = Boolean(w.isMagic && !state.magicUnlocked);
-              const craftable = Boolean(!npcRequired && !magicLocked && w.craftCost && canAfford(r, w.craftCost));
+              const craftable = Boolean(!npcRequired && !magicLocked && tierStatus.unlocked && w.craftCost && canAfford(r, w.craftCost));
               const rarityCol = getRarityColor(w.rarity);
 
               return (
@@ -438,7 +466,9 @@ export function SlideDrawer({
                   className={`rounded-lg p-2.5 border ${
                     isEquipped
                       ? 'bg-[#122f47] border-amber-400/70'
-                      : 'bg-[#0b1f31] border-[#1c3b56]'
+                      : !owned && !tierStatus.unlocked
+                        ? 'bg-[#071522] border-[#152d42] opacity-85'
+                        : 'bg-[#0b1f31] border-[#1c3b56]'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -447,16 +477,24 @@ export function SlideDrawer({
                         <WeaponIcon weaponId={w.id} category={w.category} className="w-5 h-5" />
                       </div>
                       <div className="min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="px-1 py-0.2 rounded bg-slate-800 border border-slate-600 text-[9px] font-mono-num font-bold text-amber-200 shrink-0">
+                            T{tierStatus.tier}
+                          </span>
                           <span className="text-xs font-bold truncate" style={{ color: rarityCol }}>
                             {w.name}
                           </span>
-                          <span className="text-[10px] text-slate-400 uppercase">{w.category}</span>
+                          <span className="text-[10px] text-slate-400 uppercase shrink-0">{w.category}</span>
                         </div>
                         <div className="text-[11px] text-slate-300 mt-0.5">{w.description}</div>
                         <div className="text-[10px] font-mono-num text-slate-400 mt-1">
                           {getRarityLabel(w.rarity)} · Daño {w.damage} · Alcance {w.range}
                         </div>
+                        {!owned && !tierStatus.unlocked && tierStatus.prereqName && (
+                          <div className="text-[10px] font-bold text-rose-300 mt-1">
+                            🔒 Bloqueada: forja primero {tierStatus.prereqName}
+                          </div>
+                        )}
                         {magicLocked && !owned && (
                           <div className="text-[10px] font-bold text-purple-300 mt-1">
                             ✨ Magia bloqueada: avanza hasta el Capítulo II de la historia.
@@ -499,7 +537,7 @@ export function SlideDrawer({
                         onClick={() => onCraftWeapon(w.id)}
                         className="min-h-[40px] px-2.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-xs font-bold text-white whitespace-nowrap cursor-pointer shrink-0"
                       >
-                        Forjar
+                        {tierStatus.unlocked ? 'Forjar' : 'Bloqueada'}
                       </button>
                     ) : (
                       <span className="text-[10px] font-semibold text-amber-300 whitespace-nowrap">
@@ -553,25 +591,56 @@ export function SlideDrawer({
             </div>
 
             <UpgradeRow
-              title={`Cubierta & Casco · Nv.${state.raft.level}`}
-              desc="Amplía la nave hacia Balandra, Goleta, Fragata y Buque de Guerra Nuclear (Nv.7)."
+              title={`Cubierta & Casco · Nv.${state.raft.level}/10`}
+              desc="Amplía la nave hacia Balandra, Goleta, Fragata y Buque de Guerra Nuclear Moderno (Nv.7+)."
               cost={{ mad: 12 + state.raft.level * 5, cht: 6 + state.raft.level * 3, hie: state.raft.level >= 3 ? state.raft.level : 0 }}
               bag={r}
+              forceDisable={state.raft.level >= 10}
+              buttonLabel={state.raft.level >= 10 ? 'Máx' : 'Mejorar'}
               onClick={() => onUpgradeRaft('level')}
             />
             <UpgradeRow
-              title={`Motor & Timón · Nv.${state.raft.engineLevel}`}
+              title={`Motor & Propulsión · Nv.${state.raft.engineLevel}`}
               desc="Mayor velocidad al surcar mares."
               cost={{ mad: 9 + state.raft.engineLevel * 4, cht: 8 + state.raft.engineLevel * 4, oro: state.raft.engineLevel + 1 }}
               bag={r}
               onClick={() => onUpgradeRaft('engineLevel')}
             />
             <UpgradeRow
-              title={`Torretas Automáticas · Nv.${state.raft.turretLevel}`}
-              desc="Defensa armada contra bandidos y monstruos."
-              cost={{ cht: 14 + state.raft.turretLevel * 6, mad: 8, hie: 2, tit: state.raft.turretLevel >= 1 ? 2 : 0 }}
+              title={`Torretas Automáticas · Nv.${state.raft.turretLevel}/8`}
+              desc="Monta hasta 8 torretas (railguns dobles en Buque Nv.7+) contra bandidos y monstruos."
+              cost={{ cht: 14 + state.raft.turretLevel * 6, mad: 8, hie: 2 + state.raft.turretLevel, tit: state.raft.turretLevel >= 1 ? 2 : 0 }}
               bag={r}
+              forceDisable={state.raft.turretLevel >= 8}
+              buttonLabel={state.raft.turretLevel >= 8 ? 'Máx' : 'Instalar'}
               onClick={() => onUpgradeRaft('turretLevel')}
+            />
+            <UpgradeRow
+              title={`Batería de Misiles VLS · Nv.${state.raft.missileLevel || 0}/4`}
+              desc="Lanza salvas de misiles explosivos teledirigidos desde la proa del navío."
+              cost={{ cht: 14 + (state.raft.missileLevel || 0) * 6, hie: 6 + (state.raft.missileLevel || 0) * 3, tit: 2 + (state.raft.missileLevel || 0) * 2, car: 6 }}
+              bag={r}
+              forceDisable={(state.raft.missileLevel || 0) >= 4}
+              buttonLabel={(state.raft.missileLevel || 0) >= 4 ? 'Máx' : 'Montar'}
+              onClick={() => onUpgradeRaft('missileLevel')}
+            />
+            <UpgradeRow
+              title={`Escudo Deflector Naval · Nv.${state.raft.shieldLevel || 0}/4`}
+              desc="Genera barrera electromagnética (+75 HP casco/nv, reduce daño y autorrepara lento)."
+              cost={{ tit: 3 + (state.raft.shieldLevel || 0) * 2, tec: 2 + (state.raft.shieldLevel || 0) * 2, cri: 1 + (state.raft.shieldLevel || 0) }}
+              bag={r}
+              forceDisable={(state.raft.shieldLevel || 0) >= 4}
+              buttonLabel={(state.raft.shieldLevel || 0) >= 4 ? 'Máx' : 'Activar'}
+              onClick={() => onUpgradeRaft('shieldLevel')}
+            />
+            <UpgradeRow
+              title={`Drones de Defensa Orbital · Nv.${state.raft.droneLevel || 0}/3`}
+              desc="Despliega drones autónomos alrededor del barco que disparan láseres de plasma."
+              cost={{ tec: 4 + (state.raft.droneLevel || 0) * 3, tit: 3 + (state.raft.droneLevel || 0) * 2, cri: 2 }}
+              bag={r}
+              forceDisable={(state.raft.droneLevel || 0) >= 3}
+              buttonLabel={(state.raft.droneLevel || 0) >= 3 ? 'Máx' : 'Desplegar'}
+              onClick={() => onUpgradeRaft('droneLevel')}
             />
             <UpgradeRow
               title={`Destilador Marino · Nv.${state.raft.distillerLevel}`}
@@ -582,7 +651,7 @@ export function SlideDrawer({
             />
             <UpgradeRow
               title={`Paneles Solares · Nv.${state.raft.solarLevel}`}
-              desc="Acelera las torretas del navío."
+              desc="Acelera las torretas, misiles y drones del navío."
               cost={{ cht: 10 + state.raft.solarLevel * 4, tit: state.raft.solarLevel >= 2 ? 1 : 0 }}
               bag={r}
               onClick={() => onUpgradeRaft('solarLevel')}
@@ -805,7 +874,10 @@ export function SlideDrawer({
                     {AOE_AGES_CATALOG[currentAge - 1]?.name || 'Edad I'}
                   </div>
                   <div className="text-[10px] text-slate-300">
-                    Población Imperial: <b className="text-sky-300">{popStats.pop}/{popStats.popCap}</b> ({popStats.villagers} ald. · {popStats.guards} guard. · {popStats.patrolShips} patr.)
+                    Población Imperial: <b className="text-sky-300">{popStats.pop}/{popStats.popCap}</b> ({popStats.villagers} ald. · {popStats.farmers} granj. · {popStats.guards} guard. · {popStats.patrolShips} patr.)
+                  </div>
+                  <div className="text-[10px] text-cyan-300 font-semibold mt-0.5">
+                    🗿 Misterios y Huevos de Pascua hallados: <b className="text-amber-300">{state.discoveredMysteries?.length || 0}/8</b>
                   </div>
                 </div>
                 {onRepairStructures && damagedStructuresCount > 0 && (
@@ -847,19 +919,68 @@ export function SlideDrawer({
             </div>
 
             <div className="rounded-lg p-3 bg-[#0b1f31] border border-[#1d3e5b] space-y-2">
-              <div className="text-xs font-bold text-amber-300">
-                Base Isleña, Cuartel y Punto de Control
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-bold text-amber-300">
+                  Base Isleña, Cuartel y Punto de Control
+                </div>
+                <span
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                    currentIslandName
+                      ? 'bg-emerald-500/15 border-emerald-400/50 text-emerald-300'
+                      : 'bg-sky-500/15 border-sky-400/40 text-sky-300'
+                  }`}
+                >
+                  {currentIslandName ? `En tierra: ${currentIslandName}` : 'En el mar'}
+                </span>
               </div>
               <div className="text-[11px] text-slate-300">
                 {currentIslandName
-                  ? `Estás en: ${currentIslandName}.`
-                  : 'Desembarca en una isla para construir edificios AoE, murallas y complejos.'}
+                  ? `Construcción AoE activa en ${currentIslandName}. Los Refugios, Cuarteles, Búnkeres y Pueblos tienen muros sólidos: entra solo por la Puerta Sur.`
+                  : 'Para construir edificios debes bajar a una isla (acércate a la orilla o pulsa F al desembarcar).'}
+                {(() => {
+                  const currIsl = discoveredIslands.find((x) => x.id === currentIslandId);
+                  if (!currIsl?.cultureName) return null;
+                  return (
+                    <span
+                      className="block font-semibold mt-1"
+                      style={{ color: currIsl.cultureColor || '#7dd3fc' }}
+                    >
+                      {currIsl.cultureEmblem || '🧭'} Cultura {currIsl.cultureName}
+                      {currIsl.cultureTradition ? ` · ${currIsl.cultureTradition}` : ''}
+                    </span>
+                  );
+                })()}
                 {state.hqIslandName && (
                   <span className="block text-emerald-300 font-semibold mt-1">
                     Cuartel establecido en: {state.hqIslandName}
                   </span>
                 )}
               </div>
+
+              {currentIslandStructures.length > 0 && (
+                <div className="pt-2 border-t border-[#173652] space-y-1 max-h-28 overflow-y-auto deck-scroll pr-1">
+                  <div className="text-[10px] font-bold uppercase tracking-wide text-sky-300">
+                    Estructuras en esta isla ({currentIslandStructures.length})
+                  </div>
+                  {currentIslandStructures.map((st) => {
+                    const hp = st.hp ?? st.maxHp ?? 100;
+                    const maxHp = st.maxHp ?? 100;
+                    return (
+                      <div
+                        key={st.id}
+                        className="flex items-center justify-between gap-2 px-2 py-1 rounded bg-[#071522] border border-[#18344d] text-[10px]"
+                      >
+                        <span className="font-semibold text-slate-200 capitalize truncate">
+                          {st.customName || st.kind.replace('_', ' ')} (Nv.{st.level})
+                        </span>
+                        <span className="font-mono-num text-emerald-300 shrink-0">
+                          {Math.ceil(hp)}/{maxHp} HP
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               <div className="pt-2 border-t border-[#173652] flex items-center justify-between gap-2">
                 <div className="min-w-0">
@@ -893,7 +1014,11 @@ export function SlideDrawer({
                   {state.hqIslandId ? 'Traslado libre' : 'Costo HQ: 16 Mad · 12 Cht · 4 Oro'}
                 </span>
               </div>
-              {discoveredIslands.length > 0 && (
+              {discoveredIslands.length === 0 ? (
+                <div className="text-[11px] text-slate-400 italic">
+                  Descubre al menos una isla tocando su costa para poder designarla como Cuartel General.
+                </div>
+              ) : (
                 <div className="space-y-1.5 max-h-32 overflow-y-auto deck-scroll pr-1">
                   {discoveredIslands.map((isl) => {
                     const isCurrentHq = state.hqIslandId === isl.id;
@@ -910,7 +1035,14 @@ export function SlideDrawer({
                             {isl.name}
                             {currentIslandId === isl.id && <span className="ml-1 text-[10px] text-sky-300">(Aquí)</span>}
                           </div>
-                          <div className="text-[10px] text-slate-400 capitalize">Bioma: {isl.biome}</div>
+                          <div className="text-[10px] text-slate-400 flex items-center gap-1.5 flex-wrap">
+                            <span className="capitalize">Bioma: {isl.biome}</span>
+                            {isl.cultureName && (
+                              <span style={{ color: isl.cultureColor || '#93c5fd' }}>
+                                · {isl.cultureEmblem || '🧭'} {isl.cultureName}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         {isCurrentHq ? (
                           <span className="text-[10px] font-bold text-emerald-300 shrink-0">Cuartel Actual</span>
@@ -953,18 +1085,23 @@ export function SlideDrawer({
               <div className="rounded-lg p-3 bg-[#0d2235] border border-cyan-500/40 space-y-2">
                 <div className="flex items-center justify-between text-xs font-bold text-cyan-300">
                   <span className="flex items-center gap-1.5">
-                    <Users className="w-4 h-4" /> Entrenar Unidades Isleñas
+                    <Users className="w-4 h-4" /> Reclutar Trabajadores y Defensores
                   </span>
                   <span className="font-mono-num">{popStats.pop}/{popStats.popCap}</span>
                 </div>
                 <div className="grid grid-cols-1 gap-1.5">
                   <TradeRow
-                    title="Aldeano Recolector (4 Mad · 3 Gui)"
+                    title="Aldeano Recolector (4 Mad · 3 Gui) — Tala, pica y huye del peligro"
                     disabled={!currentIslandName || popStats.pop >= popStats.popCap || r.mad < 4 || r.gui < 3}
                     onClick={() => onTrainIslandUnit('villager')}
                   />
                   <TradeRow
-                    title="Guardia Armado (6 Hie · 4 Oro · Cuartel)"
+                    title="Granjero Cultivador (4 Mad · 2 Veg · 1 Agu) — Siembra, riega y acelera huertos"
+                    disabled={!currentIslandName || popStats.pop >= popStats.popCap || r.mad < 4 || r.veg < 2 || r.agu < 1}
+                    onClick={() => onTrainIslandUnit('farmer')}
+                  />
+                  <TradeRow
+                    title="Guardia Armado (6 Hie · 4 Oro · Cuartel) — Defiende la isla de saqueadores"
                     disabled={
                       !currentIslandName ||
                       popStats.pop >= popStats.popCap ||
@@ -975,7 +1112,7 @@ export function SlideDrawer({
                     onClick={() => onTrainIslandUnit('guard')}
                   />
                   <TradeRow
-                    title="Barco Patrulla (10 Mad · 6 Hie · 6 Oro · Muelle)"
+                    title="Barco Patrulla (10 Mad · 6 Hie · 6 Oro · Muelle) — Intercepta piratas en el mar"
                     disabled={
                       !currentIslandName ||
                       popStats.pop >= popStats.popCap ||
@@ -1438,6 +1575,27 @@ export function SlideDrawer({
                 </button>
               </div>
 
+              {onTrainIslandUnit && (
+                <div className="pt-1.5 border-t border-[#183852] flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-bold text-emerald-300">
+                      Reclutar Granjero en esta Isla ({popStats.farmers} activos · {popStats.pop}/{popStats.popCap})
+                    </div>
+                    <div className="text-[10px] text-slate-300">
+                      Siembra, riega y acelera los huertos de la isla automáticamente.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!currentIslandName || popStats.pop >= popStats.popCap || r.mad < 4 || r.veg < 2 || r.agu < 1}
+                    onClick={() => onTrainIslandUnit('farmer')}
+                    className="min-h-[38px] px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white text-[11px] font-bold cursor-pointer shrink-0"
+                  >
+                    Reclutar (4 Mad · 2 Veg · 1 Agu)
+                  </button>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-1">
                 {CROPS_CATALOG.map((crop) => (
                   <button
@@ -1563,6 +1721,25 @@ export function SlideDrawer({
 
         {tab === 'kingdoms' && (
           <div className="space-y-2.5">
+            {(() => {
+              const wanted = getMarineWantedLevel(state);
+              return (
+                <div className="rounded-lg p-2.5 bg-[#091c2e] border border-sky-500/45 space-y-1 text-[11px]">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-sky-300">⚓ La Marina Naval</span>
+                    <span className="font-mono-num font-bold text-amber-300">
+                      {'★'.repeat(wanted.stars)} {wanted.label}
+                    </span>
+                  </div>
+                  <div className="text-slate-300">
+                    Amenaza Mundial: <b className="text-sky-200">{Math.round(state.marineThreat || 0)}%</b> · Patrullas en océano y puestos costeros activos.
+                  </div>
+                  <div className="text-[10.5px] text-amber-200 pt-0.5 border-t border-[#183852]">
+                    🏛️ <b>Decreto del Gobierno Mundial:</b> {state.worldGovDecree || 'Vigilancia Marítima Activa'}
+                  </div>
+                </div>
+              );
+            })()}
             {nearbyVillage && !nearbyVillage.depleted && (
               <div className="rounded-lg p-3 bg-[#132c42] border border-amber-400">
                 <div className="text-xs font-bold text-amber-300">
@@ -1773,7 +1950,7 @@ export function SlideDrawer({
               </div>
               {(!state.discoveredWorldNpcs || state.discoveredWorldNpcs.length === 0) ? (
                 <div className="rounded-lg p-2.5 bg-[#071522] border border-[#18344d] text-[11px] text-slate-400">
-                  Explora islas o visita el Pontón Forja del Alba en (360, -250) para descubrir Armeros, Forjadores, Mercaderes, Alquimistas, Cartógrafos y Chatarreros.
+                  Explora islas (o construye tu propio Portón Forja del Alba sobre una isla) para descubrir Armeros, Forjadores, Mercaderes, Alquimistas, Cartógrafos y Chatarreros.
                 </div>
               ) : (
                 state.discoveredWorldNpcs.map((npc) => (
@@ -1879,6 +2056,17 @@ export function SlideDrawer({
               <div className="text-xs font-bold text-pink-300">
                 Pareja Visible en el Cartel / Pueblo e Hijos en Misiones
               </div>
+
+              {state.vegaMarried && (
+                <div className="rounded-lg p-2.5 bg-gradient-to-r from-[#1f1636] to-[#12283d] border border-pink-400/70 space-y-1">
+                  <div className="text-xs font-extrabold text-pink-200">
+                    💍 Esposa Secreta Oficial: Vice-Capitana Vega
+                  </div>
+                  <div className="text-[11px] text-cyan-200">
+                    Te llama <b>“Amorcito Hermoso”</b> y protege tu vida cada 10s con una descarga devastadora de mapa completo.
+                  </div>
+                </div>
+              )}
 
               {state.family.married && state.family.partnerId && (
                 <div className="rounded-lg p-2.5 bg-[#1b1b36] border border-pink-400/60">

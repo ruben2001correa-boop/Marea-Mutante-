@@ -132,3 +132,24 @@
   color: transparent;
   animation: flame-celestial 1.25s ease-in-out infinite;
 }
+
+/* Subtle HUD Resource Icon Pulse during Guerra or Pesca a Torrentes events */
+@keyframes resource-event-pulse {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 2px rgba(251, 191, 36, 0.35));
+    opacity: 0.92;
+  }
+  50% {
+    transform: scale(1.13);
+    filter: drop-shadow(0 0 7px rgba(56, 189, 248, 0.8));
+    opacity: 1;
+  }
+}
+
+.resource-event-pulse {
+  display: inline-flex;
+  align-items: center;
+  animation: resource-event-pulse 1.5s ease-in-out infinite;
+}
+

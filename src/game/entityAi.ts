@@ -1,6 +1,8 @@
 import type {
   AnimalEntity,
+  CombatFaction,
   EnemyEntity,
+  EnemyKind,
   IslandEntity,
   NpcMoodState,
   PersistentState,
@@ -10,6 +12,109 @@ import type {
   SurvivorState,
 } from './types';
 import { hasWarshipPassive } from './constants';
+import { getIslandFactionControl, getIslandRadiusAtAngle, pointInIsland } from './worldGen';
+
+export function getEnemyFaction(e: EnemyEntity): CombatFaction {
+  if (e.kind === 'marine_patrol' || e.kind === 'marine_captain' || e.kind === 'gov_agent') {
+    return 'marina_gov';
+  }
+  if (e.isBandit || e.isHacker) {
+    return 'pirate';
+  }
+  return 'monster';
+}
+
+export function areFactionsHostile(
+  a: CombatFaction,
+  b: CombatFaction,
+  _kindA?: EnemyKind,
+  _kindB?: EnemyKind
+): boolean {
+  if (a === 'neutral' || b === 'neutral') return false;
+  if (a === 'pirate' && b === 'marina_gov') return true;
+  if (a === 'marina_gov' && b === 'pirate') return true;
+  if (a === 'monster' && b !== 'monster') return true;
+  if (b === 'monster' && a !== 'monster') return true;
+  return false;
+}
+
+export function resolveIslandFactionAccessForEnemy(
+  e: EnemyEntity,
+  islands: IslandEntity[]
+): { blocked: boolean; blockedByControl?: 'marina_gov' | 'pirate' | 'neutral_safe'; island?: IslandEntity } {
+  const faction = getEnemyFaction(e);
+  if (e.isLeviathan && e.swallowTargetIslandId) {
+    return { blocked: false };
+  }
+  for (const isl of islands) {
+    const dx = e.x - isl.x;
+    const dy = e.y - isl.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > isl.radius * 1.25 + e.radius + 14) continue;
+    const control = getIslandFactionControl(isl);
+    if (control === 'wild') continue;
+
+    // Neutral safe zones deter all hostile entities from entering or fighting inside
+    const shouldBlock =
+      control === 'neutral_safe' ||
+      (control === 'marina_gov' && faction === 'pirate') ||
+      (control === 'pirate' && faction === 'marina_gov');
+
+    if (!shouldBlock) continue;
+    const edgeR = getIslandRadiusAtAngle(isl, dx, dy) + e.radius + 10;
+    if (dist < edgeR) {
+      const safeDist = Math.max(0.001, dist);
+      e.x = isl.x + (dx / safeDist) * edgeR;
+      e.y = isl.y + (dy / safeDist) * edgeR;
+      return { blocked: true, blockedByControl: control, island: isl };
+    }
+  }
+  return { blocked: false };
+}
+
+export function findHostileFactionEnemyTarget(
+  e: EnemyEntity,
+  allEnemies: EnemyEntity[],
+  islands: IslandEntity[],
+  maxRange = 420
+): EnemyEntity | null {
+  const myFaction = getEnemyFaction(e);
+  if (myFaction === 'neutral') return null;
+  if (e.isLeviathan && !e.provoked) return null;
+
+  let best: EnemyEntity | null = null;
+  let bestDist = maxRange;
+
+  for (const other of allEnemies) {
+    if (other.id === e.id || other.hp <= 0) continue;
+    if (other.isLeviathan && !other.provoked) continue;
+    const otherFaction = getEnemyFaction(other);
+    if (!areFactionsHostile(myFaction, otherFaction, e.kind, other.kind)) continue;
+
+    // Respect territorial tether if enemy has one
+    if (
+      typeof e.homeX === 'number' &&
+      typeof e.homeY === 'number' &&
+      typeof e.territoryRadius === 'number' &&
+      Math.hypot(other.x - e.homeX, other.y - e.homeY) > e.territoryRadius
+    ) {
+      continue;
+    }
+
+    // Never target entities standing inside a neutral safe zone island
+    const otherInSafe = islands.some(
+      (isl) => getIslandFactionControl(isl) === 'neutral_safe' && pointInIsland(other.x, other.y, isl)
+    );
+    if (otherInSafe) continue;
+
+    const d = Math.hypot(other.x - e.x, other.y - e.y);
+    if (d < bestDist) {
+      bestDist = d;
+      best = other;
+    }
+  }
+  return best;
+}
 
 export interface CrewHumanAiDecision {
   targetIndex: number;
@@ -68,6 +173,21 @@ const PIRATE_BARKS = {
     'Grrrhh... ¡carne fresca!',
     '¡Braaaains... sal y sangre!',
     'Raaagh... ¡no huyas del muelle maldito!',
+  ],
+  abyssal: [
+    '¡Las fosas profundas reclaman tu casco!',
+    '¡Ningún mortal regresa de la penumbra abisal!',
+    '¡Siente el peso de diez mil brazas!',
+  ],
+  marina: [
+    '¡Alto en nombre de La Marina! ¡Muestra tu bandera y ríndete!',
+    '¡Tu recompensa está confirmada! ¡Fuego de intercepción!',
+    '¡Puesto de control activado! ¡No pasarás este estrecho!',
+  ],
+  gobierno: [
+    '¡Orden directa del Gobierno Mundial: eliminar objetivo prioritario!',
+    '¡Violaste los decretos del Consejo! ¡Nadie escapa de nuestra sombra!',
+    '¡Agentes de élite desplegados! ¡Confisquen todo rastro antiguo!',
   ],
 };
 
@@ -167,7 +287,9 @@ export function evaluateCrewHumanAi(
     } else if (e.kind === 'bandit_gunner') {
       priority += 140;
     } else if (e.isBoss) {
-      priority += 130;
+      priority += 175;
+    } else if (e.isSemiBoss) {
+      priority += 155;
     } else if (e.isZombie) {
       priority += 120;
     } else if (e.isLargeMonster) {
@@ -208,6 +330,7 @@ export function computePirateHumanAi(
   dt: number,
   ctx: {
     pl: PlayerEntity;
+    targetPos?: { x: number; y: number } | null;
     raft: RaftEntity;
     halfRaft: number;
     protectedNow: boolean;
@@ -226,8 +349,10 @@ export function computePirateHumanAi(
     if (Math.random() < 0.55) e.strafeDir *= -1;
   }
 
-  const { pl, raft, halfRaft, protectedNow, allEnemies, state } = ctx;
-  const distToPl = Math.hypot(pl.x - e.x, pl.y - e.y) || 1;
+  const { pl, targetPos, raft, halfRaft, protectedNow, allEnemies, state } = ctx;
+  const focusX = targetPos ? targetPos.x : pl.x;
+  const focusY = targetPos ? targetPos.y : pl.y;
+  const distToPl = Math.hypot(focusX - e.x, focusY - e.y) || 1;
   const hpRatio = e.hp / Math.max(1, e.maxHp);
   const nearbyAllies = allEnemies.filter(
     (other) => other.id !== e.id && (other.isBandit || other.isZombie || other.isHacker) && Math.hypot(other.x - e.x, other.y - e.y) < 260
@@ -236,14 +361,105 @@ export function computePirateHumanAi(
   let barkText: string | undefined;
   let barkColor = '#fca5a5';
 
-  // 1. Stealth/Shelter/SafeZone deterrence
-  if (protectedNow && !e.isBoss) {
+  // Territorial boundary check for bosses/semi-bosses: never pursue outside home territory
+  if (
+    typeof e.homeX === 'number' &&
+    typeof e.homeY === 'number' &&
+    typeof e.territoryRadius === 'number' &&
+    !e.bountyId &&
+    !e.storyMissionId
+  ) {
+    const plDistHome = Math.hypot(focusX - e.homeX, focusY - e.homeY);
+    if (plDistHome > e.territoryRadius) {
+      e.aiState = 'patrol';
+      const patAng = ctx.worldTime * 0.55 + e.id * 1.1;
+      const patR = e.territoryRadius * 0.42;
+      return {
+        targetX: e.homeX + Math.cos(patAng) * patR,
+        targetY: e.homeY + Math.sin(patAng) * patR,
+        speedMult: 0.62,
+      };
+    }
+  }
+
+  // 1. Stealth/Shelter/SafeZone deterrence (applies when pursuing hidden player, not enemy faction targets)
+  if (!targetPos && protectedNow && !e.isBoss) {
     e.aiState = 'flee';
     e.stealProgress = 0;
     return {
       targetX: e.x + (e.x - pl.x),
       targetY: e.y + (e.y - pl.y),
       speedMult: 0.95,
+    };
+  }
+
+  // Marina & Gobierno Mundial AI: tactical intercept, flank and decree pursuit
+  if (e.kind === 'marine_patrol' || e.kind === 'marine_captain' || e.kind === 'gov_agent') {
+    const isGov = e.kind === 'gov_agent';
+    if (e.aiBarkCd <= 0 && distToPl < 360 && Math.random() < 0.24) {
+      e.aiBarkCd = 10;
+      barkText = pick(isGov ? PIRATE_BARKS.gobierno : PIRATE_BARKS.marina);
+      barkColor = isGov ? '#e2e8f0' : '#60a5fa';
+    }
+    const ang = Math.atan2(focusY - e.y, focusX - e.x);
+    const tangent = ang + (Math.PI / 2) * e.strafeDir;
+    if (isGov) {
+      const weave = distToPl > 120 ? Math.sin(ctx.worldTime * 4.1 + e.id) * 65 : 0;
+      return {
+        targetX: focusX + Math.cos(tangent) * weave,
+        targetY: focusY + Math.sin(tangent) * weave,
+        speedMult: 1.24,
+        barkText,
+        barkColor,
+      };
+    }
+    if (distToPl < 220) {
+      return {
+        targetX: e.x + Math.cos(tangent) * 120 + Math.cos(ang) * 45,
+        targetY: e.y + Math.sin(tangent) * 120 + Math.sin(ang) * 45,
+        speedMult: e.kind === 'marine_captain' ? 1.12 : 1.0,
+        barkText,
+        barkColor,
+      };
+    }
+    return {
+      targetX: focusX + Math.cos(tangent) * 60,
+      targetY: focusY + Math.sin(tangent) * 60,
+      speedMult: 1.06,
+      barkText,
+      barkColor,
+    };
+  }
+
+  // Abyssal Knights, Wardens & Arch-Necromancers: relentless pressure + flanking + ranged magic/bones
+  if (
+    e.kind === 'abysmal_knight' ||
+    e.kind === 'abysmal_warden' ||
+    e.kind === 'abysmal_necromancer'
+  ) {
+    if (e.aiBarkCd <= 0 && distToPl < 360 && Math.random() < 0.25) {
+      e.aiBarkCd = 10;
+      barkText = pick(PIRATE_BARKS.abyssal);
+      barkColor = e.kind === 'abysmal_necromancer' ? '#c084fc' : '#22d3ee';
+    }
+    const ang = Math.atan2(pl.y - e.y, pl.x - e.x);
+    const tangent = ang + (Math.PI / 2) * e.strafeDir;
+    if (e.kind === 'abysmal_necromancer' && distToPl < 250) {
+      return {
+        targetX: e.x + Math.cos(tangent) * 140 - Math.cos(ang) * 40,
+        targetY: e.y + Math.sin(tangent) * 140 - Math.sin(ang) * 40,
+        speedMult: 0.96,
+        barkText,
+        barkColor,
+      };
+    }
+    const weave = distToPl > 85 ? Math.sin(ctx.worldTime * 3.4 + e.id) * 55 : 0;
+    return {
+      targetX: pl.x + Math.cos(ang + Math.PI / 2) * weave,
+      targetY: pl.y + Math.sin(ang + Math.PI / 2) * weave,
+      speedMult: e.kind === 'abysmal_knight' ? 1.16 : 1.04,
+      barkText,
+      barkColor,
     };
   }
 
@@ -348,7 +564,7 @@ export function computePirateHumanAi(
 
   // 4. Ranged Gunner Human AI
   if (e.kind === 'bandit_gunner') {
-    const angToPl = Math.atan2(pl.y - e.y, pl.x - e.x);
+    const angToPl = Math.atan2(focusY - e.y, focusX - e.x);
     const tangentAng = angToPl + (Math.PI / 2) * e.strafeDir;
     e.aiState = 'flank';
 
@@ -376,8 +592,8 @@ export function computePirateHumanAi(
       };
     }
     return {
-      targetX: pl.x + Math.cos(tangentAng) * 85,
-      targetY: pl.y + Math.sin(tangentAng) * 85,
+      targetX: focusX + Math.cos(tangentAng) * 85,
+      targetY: focusY + Math.sin(tangentAng) * 85,
       speedMult: 1.04,
       barkText,
       barkColor,
@@ -385,7 +601,7 @@ export function computePirateHumanAi(
   }
 
   // 5. Thief approaching raft cargo
-  if (e.isThief) {
+  if (e.isThief && !targetPos) {
     e.aiState = 'board';
     return {
       targetX: raft.x,
@@ -396,7 +612,7 @@ export function computePirateHumanAi(
 
   // 6. Melee Grunt & Pirate Boss
   e.aiState = distToPl < halfRaft + 80 ? 'board' : 'flank';
-  const ang = Math.atan2(pl.y - e.y, pl.x - e.x);
+  const ang = Math.atan2(focusY - e.y, focusX - e.x);
   const weave = distToPl > 90 ? Math.sin(ctx.worldTime * 3.1 + e.id) * 58 : 0;
   const perp = ang + Math.PI / 2;
   const packBoost = 1 + Math.min(0.22, nearbyAllies * 0.08);
@@ -408,8 +624,8 @@ export function computePirateHumanAi(
   }
 
   return {
-    targetX: pl.x + Math.cos(perp) * weave,
-    targetY: pl.y + Math.sin(perp) * weave,
+    targetX: focusX + Math.cos(perp) * weave,
+    targetY: focusY + Math.sin(perp) * weave,
     speedMult: packBoost,
     barkText,
     barkColor,
@@ -424,6 +640,7 @@ export function computeSeaMonsterAi(
   dt: number,
   ctx: {
     pl: PlayerEntity;
+    targetPos?: { x: number; y: number } | null;
     raft: RaftEntity;
     protectedNow: boolean;
     state: PersistentState;
@@ -435,12 +652,35 @@ export function computeSeaMonsterAi(
     e.strafeDir = e.id % 2 === 0 ? 1 : -1;
   }
 
-  const { pl, raft, protectedNow, state, worldTime } = ctx;
-  const distToPl = Math.hypot(pl.x - e.x, pl.y - e.y) || 1;
-  const ang = Math.atan2(pl.y - e.y, pl.x - e.x);
+  const { pl, targetPos, raft, protectedNow, state, worldTime } = ctx;
+  const focusX = targetPos ? targetPos.x : pl.x;
+  const focusY = targetPos ? targetPos.y : pl.y;
+  const distToPl = Math.hypot(focusX - e.x, focusY - e.y) || 1;
+  const ang = Math.atan2(focusY - e.y, focusX - e.x);
   const tangent = ang + (Math.PI / 2) * e.strafeDir;
 
-  if (protectedNow && !e.isLeviathan) {
+  // Territorial boundary check for abyssal bosses & semi-bosses: stay home and only attack trespassers
+  if (
+    typeof e.homeX === 'number' &&
+    typeof e.homeY === 'number' &&
+    typeof e.territoryRadius === 'number' &&
+    !e.bountyId &&
+    !e.storyMissionId
+  ) {
+    const plDistHome = Math.hypot(focusX - e.homeX, focusY - e.homeY);
+    if (plDistHome > e.territoryRadius) {
+      e.aiState = 'patrol';
+      const patAng = worldTime * 0.48 + e.id * 1.3;
+      const patR = e.territoryRadius * 0.45;
+      return {
+        targetX: e.homeX + Math.cos(patAng) * patR,
+        targetY: e.homeY + Math.sin(patAng) * patR,
+        speedMult: 0.58,
+      };
+    }
+  }
+
+  if (!targetPos && protectedNow && !e.isLeviathan) {
     e.aiState = 'flee';
     return {
       targetX: e.x + (e.x - pl.x),
@@ -467,16 +707,16 @@ export function computeSeaMonsterAi(
 
     if (e.aiState === 'lunge') {
       return {
-        targetX: pl.x,
-        targetY: pl.y,
+        targetX: focusX,
+        targetY: focusY,
         speedMult: bloodFrenzy ? 1.65 : 1.48,
       };
     }
 
     const orbitDist = 175;
     return {
-      targetX: pl.x - Math.cos(ang) * orbitDist + Math.cos(tangent) * 140,
-      targetY: pl.y - Math.sin(ang) * orbitDist + Math.sin(tangent) * 140,
+      targetX: focusX - Math.cos(ang) * orbitDist + Math.cos(tangent) * 140,
+      targetY: focusY - Math.sin(ang) * orbitDist + Math.sin(tangent) * 140,
       speedMult: bloodFrenzy ? 1.15 : 0.96,
     };
   }
@@ -488,15 +728,53 @@ export function computeSeaMonsterAi(
     }
     if (e.aiState === 'lunge') {
       return {
-        targetX: pl.x,
-        targetY: pl.y,
+        targetX: focusX,
+        targetY: focusY,
         speedMult: 1.28,
       };
     }
     return {
-      targetX: raft.x + Math.cos(tangent) * 145,
-      targetY: raft.y + Math.sin(tangent) * 145,
+      targetX: (targetPos ? focusX : raft.x) + Math.cos(tangent) * 145,
+      targetY: (targetPos ? focusY : raft.y) + Math.sin(tangent) * 145,
       speedMult: 0.92,
+    };
+  }
+
+  // Abyssal Semi-Bosses & Bosses steering patterns
+  if (e.kind.startsWith('abysmal_')) {
+    if (e.aiTimer <= 0) {
+      e.aiState = e.aiState === 'lunge' ? 'flank' : 'lunge';
+      e.aiTimer = e.aiState === 'lunge' ? 1.9 : 2.1;
+      if (Math.random() < 0.5) e.strafeDir *= -1;
+    }
+    if (e.kind === 'abysmal_siren' || e.kind === 'abysmal_empress') {
+      const orbitDist = e.kind === 'abysmal_empress' ? 235 : 185;
+      return {
+        targetX: focusX - Math.cos(ang) * orbitDist + Math.cos(tangent) * 150,
+        targetY: focusY - Math.sin(ang) * orbitDist + Math.sin(tangent) * 150,
+        speedMult: 1.06,
+      };
+    }
+    if (e.kind === 'abysmal_eel' || e.kind === 'abysmal_angler') {
+      const lunge = e.aiState === 'lunge';
+      return {
+        targetX: lunge ? focusX : focusX + Math.cos(tangent) * 165,
+        targetY: lunge ? focusY : focusY + Math.sin(tangent) * 165,
+        speedMult: lunge ? 1.48 : 1.05,
+      };
+    }
+    if (e.kind === 'abysmal_behemoth' || e.kind === 'abysmal_golem') {
+      return {
+        targetX: focusX,
+        targetY: focusY,
+        speedMult: e.aiState === 'lunge' ? 1.25 : 0.92,
+      };
+    }
+    // Hydra & Sovereign: multi-angle encirclement + aggressive surge
+    return {
+      targetX: focusX + Math.cos(tangent) * (e.aiState === 'lunge' ? 35 : 155),
+      targetY: focusY + Math.sin(tangent) * (e.aiState === 'lunge' ? 35 : 155),
+      speedMult: e.aiState === 'lunge' ? 1.32 : 1.04,
     };
   }
 
@@ -504,8 +782,8 @@ export function computeSeaMonsterAi(
   const pulseMult = e.aiState === 'lunge' ? 1.24 : 0.84;
   const sway = Math.sin(worldTime * 3.0 + e.id) * 44;
   return {
-    targetX: pl.x + Math.cos(tangent) * sway,
-    targetY: pl.y + Math.sin(tangent) * sway,
+    targetX: focusX + Math.cos(tangent) * sway,
+    targetY: focusY + Math.sin(tangent) * sway,
     speedMult: pulseMult,
   };
 }

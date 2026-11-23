@@ -1,6 +1,7 @@
+import { Lock } from 'lucide-react';
 import { Anvil, Compass, FlaskConical, Hammer, MessageCircle, ShoppingBag, Sparkles, Wrench, X } from 'lucide-react';
 import { canAfford, canFireNuclearWeapon } from '../game/constants';
-import { WEAPONS, getRarityColor, getRarityLabel, isNpcForgedRarity } from '../game/weapons';
+import { WEAPONS, getRarityColor, getRarityLabel, getWeaponUnlockStatus, isNpcForgedRarity } from '../game/weapons';
 import type { PersistentState, PlayerEntity, ResourceBag, WorldNpcEntity } from '../game/types';
 import { WeaponIcon } from './WeaponIcon';
 
@@ -210,6 +211,7 @@ export function NpcMerchantModal({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
                 {forgeableWeapons.map((w) => {
                   const owned = state.ownedWeapons.includes(w.id);
+                  const tierStatus = getWeaponUnlockStatus(w.id, state.ownedWeapons);
                   const magicLocked = Boolean(w.isMagic && !state.magicUnlocked);
                   const nucCheck = w.isNuclear ? canFireNuclearWeapon(state, player, w) : { allowed: true };
                   const affordable = Boolean(w.craftCost && canAfford(r, w.craftCost));
@@ -220,7 +222,9 @@ export function NpcMerchantModal({
                       className={`rounded-xl p-3 border space-y-2 ${
                         owned
                           ? 'bg-[#0b272a] border-emerald-500/45'
-                          : 'bg-[#0b1f31] border-[#1f4263]'
+                          : !tierStatus.unlocked
+                            ? 'bg-[#071522] border-[#183148] opacity-85'
+                            : 'bg-[#0b1f31] border-[#1f4263]'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
@@ -229,8 +233,13 @@ export function NpcMerchantModal({
                             <WeaponIcon weaponId={w.id} category={w.category} className="w-5 h-5" />
                           </div>
                           <div className="min-w-0">
-                            <div className="text-xs font-extrabold truncate" style={{ color: rarityCol }}>
-                              {w.name}
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="px-1.5 py-0.2 rounded bg-slate-800 border border-slate-600 text-[9px] font-mono-num font-bold text-amber-200 shrink-0">
+                                T{tierStatus.tier}
+                              </span>
+                              <span className="text-xs font-extrabold truncate" style={{ color: rarityCol }}>
+                                {w.name}
+                              </span>
                             </div>
                             <div className="text-[10px] font-mono-num text-slate-300">
                               {getRarityLabel(w.rarity)} · Daño {w.damage} · Alc {w.range}
@@ -240,6 +249,11 @@ export function NpcMerchantModal({
                         {owned ? (
                           <span className="px-2 py-1 rounded bg-emerald-500/20 text-emerald-300 text-[10px] font-bold shrink-0">
                             Forjada
+                          </span>
+                        ) : !tierStatus.unlocked ? (
+                          <span className="px-2 py-1 rounded bg-rose-950/70 border border-rose-500/40 text-rose-300 text-[10px] font-bold inline-flex items-center gap-1 shrink-0">
+                            <Lock className="w-3 h-3" />
+                            <span>Bloqueada</span>
                           </span>
                         ) : (
                           <button
@@ -253,6 +267,11 @@ export function NpcMerchantModal({
                         )}
                       </div>
                       <p className="text-[11px] text-slate-300 leading-snug">{w.description}</p>
+                      {!owned && !tierStatus.unlocked && tierStatus.prereqName && (
+                        <div className="text-[10px] text-rose-300 font-bold">
+                          🔒 Requiere forjar primero (Tier {tierStatus.tier - 1}): {tierStatus.prereqName}
+                        </div>
+                      )}
                       {magicLocked && (
                         <div className="text-[10px] text-purple-300 font-semibold">
                           Requiere despertar la Magia en el Capítulo II de la historia.

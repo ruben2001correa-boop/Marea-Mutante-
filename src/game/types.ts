@@ -1,5 +1,12 @@
 export type GameMode = 'TITLE_MENU' | 'PLAYING' | 'PAUSED' | 'GAME_OVER';
 
+export type DifficultyLevel =
+  | 'calma'
+  | 'superviviente'
+  | 'pesadilla'
+  | 'abismo'
+  | 'infernal';
+
 export type DrawerTab =
   | 'arsenal'
   | 'raft'
@@ -135,6 +142,8 @@ export interface WeaponDef {
   isCelestial?: boolean;
   isMagic?: boolean;
   craftedByNpc?: 'armero' | 'forjador' | 'both';
+  tier?: number;
+  prereqWeaponId?: string;
   description: string;
   craftCost?: Partial<ResourceBag>;
 }
@@ -369,7 +378,10 @@ export interface IslandNode {
     | 'shipwreck'
     | 'abandoned_bunker'
     | 'radio_tower'
-    | 'zombie_grave';
+    | 'zombie_grave'
+    | 'mystery_monolith'
+    | 'easter_egg'
+    | 'marine_checkpoint';
   x: number;
   y: number;
   hp: number;
@@ -378,6 +390,7 @@ export interface IslandNode {
   villageName?: string;
   kingdomId?: string;
   pirateRank?: DangerRank;
+  mysteryId?: string;
 }
 
 export type AgeTier = 1 | 2 | 3 | 4;
@@ -385,7 +398,7 @@ export type AgeTier = 1 | 2 | 3 | 4;
 export interface IslandUnit {
   id: string;
   islandId: string;
-  kind: 'villager' | 'guard' | 'patrol_ship';
+  kind: 'villager' | 'farmer' | 'guard' | 'patrol_ship';
   role: string;
   x: number;
   y: number;
@@ -423,7 +436,8 @@ export interface IslandStructure {
     | 'mill'
     | 'blacksmith'
     | 'market'
-    | 'watchtower';
+    | 'watchtower'
+    | 'forge_gate';
   x: number;
   y: number;
   level: number;
@@ -451,13 +465,25 @@ export interface CompoundWallSegment {
   destroyed: boolean;
 }
 
+export type IslandFactionControl = 'marina_gov' | 'pirate' | 'neutral_safe';
+
+export type CombatFaction = 'pirate' | 'marina_gov' | 'monster' | 'neutral';
+
 export interface IslandEntity {
   id: string;
   chunkKey: string;
   name: string;
   biome: IslandBiome;
+  cultureId?: string;
+  cultureName?: string;
+  cultureColor?: string;
+  cultureEmblem?: string;
+  cultureTradition?: string;
+  cultureGreeting?: string;
+  regenTimer?: number;
   dangerous: boolean;
   isSafeZone?: boolean;
+  factionControl?: IslandFactionControl;
   villagerPersonality?: 'hostile' | 'foolish' | 'friendly';
   pirateRank?: DangerRank;
   hasVolcano?: boolean;
@@ -562,6 +588,9 @@ export interface RaftEntity {
   distillerLevel: number;
   solarLevel: number;
   engineLevel: number;
+  missileLevel?: number;
+  shieldLevel?: number;
+  droneLevel?: number;
   hp: number;
   maxHp: number;
   damagedMode: boolean;
@@ -585,7 +614,21 @@ export type EnemyKind =
   | 'zombie_spitter'
   | 'hacker_jammer'
   | 'hacker_siphoner'
-  | 'hacker_corsair';
+  | 'hacker_corsair'
+  | 'abysmal_eel'
+  | 'abysmal_knight'
+  | 'abysmal_siren'
+  | 'abysmal_warden'
+  | 'abysmal_angler'
+  | 'abysmal_golem'
+  | 'abysmal_empress'
+  | 'abysmal_behemoth'
+  | 'abysmal_necromancer'
+  | 'abysmal_hydra'
+  | 'abysmal_sovereign'
+  | 'marine_patrol'
+  | 'marine_captain'
+  | 'gov_agent';
 
 export interface EnemyEntity {
   id: number;
@@ -594,6 +637,8 @@ export interface EnemyEntity {
   isBandit: boolean;
   isThief: boolean;
   isBoss: boolean;
+  isSemiBoss?: boolean;
+  rangedShotKind?: 'shock' | 'sonic' | 'bone' | 'necrotic' | 'void';
   isAquatic: boolean;
   isLargeMonster: boolean;
   isLeviathan: boolean;
@@ -624,16 +669,24 @@ export interface EnemyEntity {
   storyMissionId?: StoryMissionId | null;
   swallowTargetIslandId?: string | null;
   swallowTimer?: number;
+  homeX?: number;
+  homeY?: number;
+  territoryRadius?: number;
   aiState?: 'patrol' | 'stalk' | 'flank' | 'lunge' | 'flee' | 'board' | 'swallow';
   aiTimer?: number;
   aiBarkCd?: number;
   strafeDir?: number;
+  freezeTimer?: number;
+  stunTimer?: number;
+  slowTimer?: number;
 }
 
 export interface ProjectileEntity {
   id: number;
   fromPlayer: boolean;
-  kind: 'arrow' | 'bullet' | 'harpoon' | 'plasma' | 'bomb' | 'nuke' | 'magic' | 'enemy_shot';
+  faction?: CombatFaction;
+  sourceEnemyId?: number;
+  kind: 'arrow' | 'bullet' | 'harpoon' | 'plasma' | 'bomb' | 'nuke' | 'magic' | 'missile' | 'enemy_shot';
   x: number;
   y: number;
   vx: number;
@@ -646,9 +699,12 @@ export interface ProjectileEntity {
   color: string;
 }
 
+export type DevilFruitKind = 'onda' | 'hielo' | 'gravedad';
+
 export interface FloatingDrop {
   id: number;
-  kind: 'resource' | 'weapon';
+  kind: 'resource' | 'weapon' | 'devil_fruit';
+  devilFruitKind?: DevilFruitKind;
   resourceKey?: ResourceKey;
   amount?: number;
   weaponId?: string;
@@ -739,10 +795,19 @@ export interface CheckpointState {
 
 export interface NewsArticle {
   id: string;
-  category: 'PORTADA' | 'MUNDO' | 'RECOMPENSA' | 'CLIMA' | 'ECONOMÍA';
+  category:
+    | 'PORTADA'
+    | 'MUNDO'
+    | 'RECOMPENSA'
+    | 'CLIMA'
+    | 'ECONOMÍA'
+    | 'CRÓNICA'
+    | 'PELIGRO'
+    | 'GUERRA';
   headline: string;
   body: string;
   day: number;
+  viaAi?: boolean;
 }
 
 export interface PirateBounty {
@@ -765,6 +830,50 @@ export interface NewspaperState {
   unread: boolean;
   lastDayPublished: number;
   articles: NewsArticle[];
+  aiSummary?: string;
+}
+
+export interface WorldEventLogItem {
+  id: string;
+  day: number;
+  kind: 'explore' | 'combat' | 'marina' | 'forge' | 'mission' | 'mystery' | 'boss';
+  text: string;
+}
+
+export interface DeathCauseRecord {
+  causeKey: string;
+  headline: string;
+  causeDetail: string;
+  sarcasm: string;
+  retryTaunt?: string;
+  facts?: string[];
+  aiLoading?: boolean;
+  aiRoast?: boolean;
+  day: number;
+}
+
+export interface RescueBoatEntity {
+  id: number;
+  sourceIslandId: string;
+  sourceIslandName: string;
+  targetIslandId: string;
+  targetIslandName: string;
+  x: number;
+  y: number;
+  targetX: number;
+  targetY: number;
+  angle: number;
+  passengers: Array<{
+    id?: string;
+    name: string;
+    color: string;
+    hatColor?: string;
+    role?: WorldNpcRole;
+    title?: string;
+    specialty?: string;
+    greeting?: string;
+  }>;
+  life: number;
 }
 
 export interface PlayerProfile {
@@ -806,6 +915,14 @@ export type EmotionalMood =
   | 'soberbia'
   | 'lokito';
 
+export type SituationalState =
+  | 'normal'
+  | 'adrenalina'
+  | 'berserker'
+  | 'enfoque'
+  | 'determinacion'
+  | 'panico';
+
 export type NpcAttitudeMood = EmotionalMood | 'cansancio';
 
 export interface PlayerVitalsState {
@@ -817,6 +934,11 @@ export interface PlayerVitalsState {
   mood: EmotionalMood;
   moodTimer: number;
   pridePoints: number;
+  situationalState?: SituationalState;
+  combatIntensity?: number;
+  situationalTimer?: number;
+  satietyTimer?: number;
+  hydrationTimer?: number;
 }
 
 export interface NpcMoodState {
@@ -889,6 +1011,7 @@ export interface GameSettings {
   actionBtnScale: number;
   orientationPref: 'auto' | 'landscape' | 'portrait';
   twinStickMobile: boolean;
+  autoFullscreen: boolean;
 }
 
 export interface PersistentState {
@@ -906,6 +1029,7 @@ export interface PersistentState {
   stealthTimer: number;
   sound: boolean;
   language: 'es' | 'en';
+  difficulty: DifficultyLevel;
   settings: GameSettings;
   magicUnlocked: boolean;
   nuclearLabBuilt: boolean;
@@ -957,6 +1081,9 @@ export interface PersistentState {
     distillerLevel: number;
     solarLevel: number;
     engineLevel: number;
+    missileLevel?: number;
+    shieldLevel?: number;
+    droneLevel?: number;
     hp: number;
     maxHp: number;
     damagedMode: boolean;
@@ -982,6 +1109,8 @@ export interface PersistentState {
   };
   discoveredIslands: string[];
   swallowedIslands: string[];
+  discoveredMysteries?: string[];
+  customWaypoint?: { x: number; y: number; label: string } | null;
   deathsUsed: number;
   extraLivesPurchased: number;
   tutorialStep: number;
@@ -997,4 +1126,9 @@ export interface PersistentState {
     x: number;
     y: number;
   }>;
+  lastDeathCause?: DeathCauseRecord | null;
+  recentEventsLog?: WorldEventLogItem[];
+  vegaMarried?: boolean;
+  marineThreat?: number;
+  worldGovDecree?: string;
 }

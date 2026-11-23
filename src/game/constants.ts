@@ -12,6 +12,8 @@ import {
 } from './socialAndKingdoms';
 import { createInitialStoryMissions } from './storyMissions';
 import type {
+  DeathCauseRecord,
+  DifficultyLevel,
   GameSettings,
   PersistentState,
   PlayerEntity,
@@ -21,6 +23,7 @@ import type {
   SurvivorId,
   WarshipPassiveDef,
   WeaponDef,
+  WorldEventLogItem,
 } from './types';
 
 export const SAVE_KEY = 'marea_mutante_v6_save';
@@ -35,7 +38,106 @@ export const DEFAULT_GAME_SETTINGS: GameSettings = {
   actionBtnScale: 1,
   orientationPref: 'auto',
   twinStickMobile: false,
+  autoFullscreen: true,
 };
+
+export interface DifficultyDef {
+  id: DifficultyLevel;
+  label: string;
+  badgeColor: string;
+  enemyHpMult: number;
+  enemyDmgMult: number;
+  enemySpeedMult: number;
+  spawnRateMult: number;
+  maxConcurrentBonus: number;
+  resourceMult: number;
+  xpFameMult: number;
+  fragLuckBonus: number;
+  graceDays: number;
+  description: string;
+}
+
+export const DIFFICULTY_CATALOG: DifficultyDef[] = [
+  {
+    id: 'calma',
+    label: 'Calma',
+    badgeColor: '#34d399',
+    enemyHpMult: 0.72,
+    enemyDmgMult: 0.65,
+    enemySpeedMult: 0.9,
+    spawnRateMult: 0.72,
+    maxConcurrentBonus: -2,
+    resourceMult: 1.35,
+    xpFameMult: 0.85,
+    fragLuckBonus: 0,
+    graceDays: 3,
+    description: 'Marea dócil, 3 días de tregua inicial y abundancia de recursos.',
+  },
+  {
+    id: 'superviviente',
+    label: 'Superviviente',
+    badgeColor: '#38bdf8',
+    enemyHpMult: 1.0,
+    enemyDmgMult: 1.0,
+    enemySpeedMult: 1.0,
+    spawnRateMult: 1.0,
+    maxConcurrentBonus: 0,
+    resourceMult: 1.0,
+    xpFameMult: 1.0,
+    fragLuckBonus: 0.02,
+    graceDays: 2,
+    description: 'Balance clásico de Marea Mutante: 2 días de tregua y progresión estándar.',
+  },
+  {
+    id: 'pesadilla',
+    label: 'Pesadilla',
+    badgeColor: '#f59e0b',
+    enemyHpMult: 1.35,
+    enemyDmgMult: 1.28,
+    enemySpeedMult: 1.08,
+    spawnRateMult: 1.25,
+    maxConcurrentBonus: 2,
+    resourceMult: 0.95,
+    xpFameMult: 1.25,
+    fragLuckBonus: 0.06,
+    graceDays: 2,
+    description: 'Semi-Bosses abisales frecuentes, olas hostiles y +25% XP/Fama.',
+  },
+  {
+    id: 'abismo',
+    label: 'Abismo',
+    badgeColor: '#a855f7',
+    enemyHpMult: 1.75,
+    enemyDmgMult: 1.55,
+    enemySpeedMult: 1.15,
+    spawnRateMult: 1.48,
+    maxConcurrentBonus: 4,
+    resourceMult: 0.9,
+    xpFameMult: 1.55,
+    fragLuckBonus: 0.12,
+    graceDays: 1,
+    description: 'Solo 1 día de tregua, Bosses Abismales constantes y mayor botín de fragmentos.',
+  },
+  {
+    id: 'infernal',
+    label: 'Infernal',
+    badgeColor: '#f43f5e',
+    enemyHpMult: 2.35,
+    enemyDmgMult: 2.0,
+    enemySpeedMult: 1.22,
+    spawnRateMult: 1.75,
+    maxConcurrentBonus: 6,
+    resourceMult: 0.85,
+    xpFameMult: 2.1,
+    fragLuckBonus: 0.22,
+    graceDays: 1,
+    description: 'Modo extremo: hordas letales, jefes abisales implacables y x2.1 XP/Fama.',
+  },
+];
+
+export function getDifficultyModifiers(diff?: DifficultyLevel): DifficultyDef {
+  return DIFFICULTY_CATALOG.find((d) => d.id === diff) || DIFFICULTY_CATALOG[1];
+}
 
 export const WARSHIP_PASSIVES_CATALOG: WarshipPassiveDef[] = [
   {
@@ -199,6 +301,14 @@ export const AOE_BUILDINGS_CATALOG: AoeBuildingDef[] = [
     cost: { mad: 16, hie: 10, tit: 4 },
     description: 'Despliega Barcos Patrulla aliados alrededor de tu isla.',
   },
+  {
+    kind: 'forge_gate',
+    name: 'Portón Forja del Alba',
+    minAge: 1,
+    maxHp: 520,
+    cost: { mad: 14, hie: 8, cht: 6, oro: 3 },
+    description: 'Se alza sobre tu posición en la isla con yunque rúnico y Forjador residente para crear armas épicas, legendarias y divinas.',
+  },
 ];
 
 export interface AoeTechDef {
@@ -244,11 +354,13 @@ export function getPopulationStats(state: PersistentState): {
   pop: number;
   popCap: number;
   villagers: number;
+  farmers: number;
   guards: number;
   patrolShips: number;
 } {
   const units = Array.isArray(state.islandUnits) ? state.islandUnits : [];
   const villagers = units.filter((u) => u.kind === 'villager').length;
+  const farmers = units.filter((u) => u.kind === 'farmer').length;
   const guards = units.filter((u) => u.kind === 'guard').length;
   const patrolShips = units.filter((u) => u.kind === 'patrol_ship').length;
   const houses = state.islandStructures.filter((s) => s.kind === 'house').length;
@@ -258,6 +370,7 @@ export function getPopulationStats(state: PersistentState): {
     pop: units.length,
     popCap,
     villagers,
+    farmers,
     guards,
     patrolShips,
   };
@@ -315,7 +428,7 @@ export function saveDonorUnlocked(unlocked: boolean): void {
 }
 
 export function getRaftHalfSize(raftLevel: number): number {
-  return Math.min(188, 72 + (Math.max(1, raftLevel) - 1) * 15);
+  return Math.min(205, 72 + (Math.max(1, raftLevel) - 1) * 15);
 }
 
 export function getRaftCorralLimit(raftLevel: number): number {
@@ -414,6 +527,118 @@ export const RESOURCE_LABELS: Record<ResourceKey, string> = {
   frag_divino: 'Frag. Divino',
 };
 
+export function logWorldEvent(
+  state: PersistentState,
+  kind: WorldEventLogItem['kind'],
+  text: string
+): void {
+  if (!Array.isArray(state.recentEventsLog)) {
+    state.recentEventsLog = [];
+  }
+  const trimmed = text.trim();
+  if (!trimmed) return;
+  const last = state.recentEventsLog[0];
+  if (last && last.text === trimmed && last.day === state.dayCount) return;
+  state.recentEventsLog.unshift({
+    id: `${state.dayCount}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    day: state.dayCount,
+    kind,
+    text: trimmed,
+  });
+  if (state.recentEventsLog.length > 26) {
+    state.recentEventsLog = state.recentEventsLog.slice(0, 26);
+  }
+}
+
+export function buildDeathCauseRecord(
+  causeKey: 'radiation' | 'needs' | 'animal' | 'leviathan' | 'pirate' | 'enemy' | 'projectile' | 'unknown',
+  attackerName?: string,
+  day = 1,
+  facts?: string[]
+): DeathCauseRecord {
+  const who = (attackerName || '').trim();
+  const baseFacts = facts && facts.length > 0 ? facts : undefined;
+  switch (causeKey) {
+    case 'radiation':
+      return {
+        causeKey,
+        headline: '☢️ Envenenamiento por Radiación Nuclear',
+        causeDetail: 'Tu cuerpo absorbió dosis letales de radiación sin traje antirradiación.',
+        sarcasm:
+          '¡Brillante jugada abrazar un reactor nuclear en camiseta, manco! Mira el lado positivo: ahora brillas en la oscuridad como faro gratis para los cangrejos.',
+        facts: baseFacts,
+        aiLoading: true,
+        day,
+      };
+    case 'needs':
+      return {
+        causeKey,
+        headline: '🥀 Colapso Orgánico por Estados Críticos Acumulados',
+        causeDetail:
+          'Hambre, deshidratación, insomnio y agotamiento mental acumulados terminaron venciendo tu organismo.',
+        sarcasm:
+          'Tenías océano, destiladores y mochilas, manco... pero elegiste ayuno extremo en pleno apocalipsis. Qué elegancia.',
+        facts: baseFacts,
+        aiLoading: true,
+        day,
+      };
+    case 'animal':
+      return {
+        causeKey,
+        headline: `🐾 Devorado por ${who || 'Fauna Salvaje'}`,
+        causeDetail: `${who || 'Una bestia costeña'} te emboscó en tierra firme y te convirtió en su almuerzo.`,
+        sarcasm: `Sobreviviste a tormentas eléctricas para terminar siendo botana gourmet de ${who || 'un bicho isleño'}. Puro nivel de manco legendario.`,
+        facts: baseFacts,
+        aiLoading: true,
+        day,
+      };
+    case 'leviathan':
+      return {
+        causeKey,
+        headline: `🐋 Triturado por ${who || 'Leviatán Colosal'}`,
+        causeDetail: `Un coloso abismal (${who || 'Leviatán'}) aplastó tu posición con fuerza catastrófica.`,
+        sarcasm:
+          'Intentaste tanquear un monstruo del tamaño de una isla con puro optimismo. Spoiler: los Leviatanes no perdonan mancos.',
+        facts: baseFacts,
+        aiLoading: true,
+        day,
+      };
+    case 'projectile':
+      return {
+        causeKey,
+        headline: `💥 Impactado por Fuego de ${who || 'Artillería Enemiga'}`,
+        causeDetail: `Un disparo directo de ${who || 'un cañón pirata'} perforó tus últimas defensas.`,
+        sarcasm:
+          'Atrapaste ese proyectil con la cara como todo un profesional. Medalla de oro olímpica en reflejos de tortuga, manco.',
+        facts: baseFacts,
+        aiLoading: true,
+        day,
+      };
+    case 'pirate':
+    case 'enemy':
+      return {
+        causeKey,
+        headline: `⚔️ Abatido en combate por ${who || 'Enemigo Abismal'}`,
+        causeDetail: `${who || 'Un adversario marino'} superó tu guardia y acabó con tu racha de supervivencia.`,
+        sarcasm: `${who || 'Tu verdugo'} acaba de colgar tu sombrero como trofeo. Ánimo manco: la próxima intenta esquivar con la pantalla encendida.`,
+        facts: baseFacts,
+        aiLoading: true,
+        day,
+      };
+    default:
+      return {
+        causeKey: 'unknown',
+        headline: '💀 Tragado por la Marea Mutante',
+        causeDetail: 'El océano reclamó tu vida tras acumular heridas mortales.',
+        sarcasm:
+          'Bueno, al menos moriste haciendo lo que amabas: ignorar el peligro y pasearte como manco en medio del fin del mundo.',
+        facts: baseFacts,
+        aiLoading: true,
+        day,
+      };
+  }
+}
+
 export function initState(): PersistentState {
   const profile = loadOrCreateProfile();
   const state: PersistentState = {
@@ -431,6 +656,7 @@ export function initState(): PersistentState {
     stealthTimer: 0,
     sound: true,
     language: 'es',
+    difficulty: 'superviviente',
     settings: { ...DEFAULT_GAME_SETTINGS },
     magicUnlocked: false,
     nuclearLabBuilt: false,
@@ -534,6 +760,9 @@ export function initState(): PersistentState {
       distillerLevel: 1,
       solarLevel: 1,
       engineLevel: 1,
+      missileLevel: 0,
+      shieldLevel: 0,
+      droneLevel: 0,
       hp: 200,
       maxHp: 200,
       damagedMode: false,
@@ -564,6 +793,8 @@ export function initState(): PersistentState {
     discoveredIslands: [],
     swallowedIslands: [],
     deathsUsed: 0,
+    discoveredMysteries: [],
+    customWaypoint: null,
     extraLivesPurchased: 0,
     tutorialStep: 0,
     tutorialDismissed: false,
@@ -571,6 +802,11 @@ export function initState(): PersistentState {
     npcMoods: createInitialNpcMoods(),
     npcChatHistory: {},
     discoveredWorldNpcs: [],
+    lastDeathCause: null,
+    recentEventsLog: [],
+    vegaMarried: false,
+    marineThreat: 10,
+    worldGovDecree: 'Decreto I: Control Costero de la Marina',
   };
   state.newspaper.articles = generateDailyNewsArticles(state, 'despejado', 1);
   return state;
@@ -604,6 +840,14 @@ export function mergeLoadedState(d: Record<string, any>): PersistentState {
     hp: typeof d.hp === 'number' && d.hp > 0 ? d.hp : base.hp,
     bounty: typeof d.bounty === 'number' ? d.bounty : base.bounty,
     language: d.language === 'en' ? 'en' : 'es',
+    difficulty:
+      d.difficulty === 'calma' ||
+      d.difficulty === 'superviviente' ||
+      d.difficulty === 'pesadilla' ||
+      d.difficulty === 'abismo' ||
+      d.difficulty === 'infernal'
+        ? d.difficulty
+        : 'superviviente',
     settings: { ...DEFAULT_GAME_SETTINGS, ...(d.settings || {}) },
     magicUnlocked: Boolean(d.magicUnlocked),
     nuclearLabBuilt: Boolean(d.nuclearLabBuilt),
@@ -717,6 +961,17 @@ export function mergeLoadedState(d: Record<string, any>): PersistentState {
     achievementsUnlocked: Array.isArray(d.achievementsUnlocked) ? d.achievementsUnlocked : [],
     discoveredIslands: Array.isArray(d.discoveredIslands) ? d.discoveredIslands : [],
     swallowedIslands: Array.isArray(d.swallowedIslands) ? d.swallowedIslands : [],
+    discoveredMysteries: Array.isArray(d.discoveredMysteries) ? d.discoveredMysteries : [],
+    customWaypoint:
+      d.customWaypoint &&
+      typeof d.customWaypoint.x === 'number' &&
+      typeof d.customWaypoint.y === 'number'
+        ? {
+            x: d.customWaypoint.x,
+            y: d.customWaypoint.y,
+            label: String(d.customWaypoint.label || 'Marca Personal').slice(0, 48),
+          }
+        : null,
     deathsUsed: typeof d.deathsUsed === 'number' ? Math.max(0, d.deathsUsed) : 0,
     extraLivesPurchased:
       typeof d.extraLivesPurchased === 'number' ? Math.max(0, d.extraLivesPurchased) : 0,
@@ -727,6 +982,14 @@ export function mergeLoadedState(d: Record<string, any>): PersistentState {
     npcChatHistory:
       d.npcChatHistory && typeof d.npcChatHistory === 'object' ? d.npcChatHistory : {},
     discoveredWorldNpcs: Array.isArray(d.discoveredWorldNpcs) ? d.discoveredWorldNpcs : [],
+    lastDeathCause: d.lastDeathCause || null,
+    recentEventsLog: Array.isArray(d.recentEventsLog) ? d.recentEventsLog : [],
+    vegaMarried: Boolean(d.vegaMarried),
+    marineThreat: typeof d.marineThreat === 'number' ? Math.max(0, Math.min(100, d.marineThreat)) : 10,
+    worldGovDecree:
+      typeof d.worldGovDecree === 'string' && d.worldGovDecree
+        ? d.worldGovDecree
+        : base.worldGovDecree,
   };
   return merged;
 }
@@ -828,6 +1091,7 @@ export function getRelicTotals(state: PersistentState) {
 export function computeRaftMaxHp(state: PersistentState): number {
   let maxHp = 200 + (state.raft.level - 1) * 95;
   if (state.raft.level >= 7) maxHp += 260; // Warship conversion bonus
+  if ((state.raft.shieldLevel || 0) > 0) maxHp += (state.raft.shieldLevel || 0) * 75;
   if (hasDestiny(state, 'naval_t2')) maxHp += 50;
   if (hasDestiny(state, 'naval_master')) maxHp += 150;
   if (state.clan.founded && state.clan.perks.includes('perk_casco')) maxHp += 80;

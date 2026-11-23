@@ -1,8 +1,9 @@
 import { getIslandCorralLimit, getRaftCorralLimit, getRaftHalfSize, getRelicTotals } from './constants';
+import { SITUATIONAL_META } from './needsAndPsychology';
 import { SURVIVORS_CATALOG } from './destinyTree';
 import { ROMANCE_CANDIDATES, CROPS_CATALOG, TITLE_MAP } from './socialAndKingdoms';
 import { WEAPON_MAP } from './weapons';
-import { getPirateRankInfo } from './worldGen';
+import { getIslandFactionControl, getPirateRankInfo, MYSTERY_MAP } from './worldGen';
 import type {
   ActiveNpcChatRenderInfo,
   AnimalEntity,
@@ -26,6 +27,7 @@ import type {
   ProjectileEntity,
   RaftEntity,
   RandomEventState,
+  RescueBoatEntity,
   SlashFx,
   SplashFx,
   WeatherType,
@@ -66,6 +68,7 @@ export interface TopDownRenderContext {
   worldNpcs?: WorldNpcEntity[];
   nearbyWorldNpcId?: string | null;
   compoundWalls?: CompoundWallSegment[];
+  rescueBoats?: RescueBoatEntity[];
 }
 
 export function renderTopDownWorld(rc: TopDownRenderContext): void {
@@ -140,9 +143,14 @@ export function renderTopDownWorld(rc: TopDownRenderContext): void {
     drawIslandStructure(ctx, st, rc.enemies, time, isDonorSkin);
   }
 
-  // Starter Barge Dock ("Pontón Forja del Alba") around (360, -250)
-  if (Math.abs(360 - camX) <= width * 0.75 && Math.abs(-250 - camY) <= height * 0.75) {
-    drawStarterForgeBarge(ctx, 360, -250, time);
+  // Natural Portón Forja del Alba landmark on the starter island (always on land, never open ocean)
+  const starterIsl = rc.islands.find((i) => i.id === 'isl_1_0');
+  if (starterIsl) {
+    const gx = starterIsl.x - starterIsl.radius * 0.34;
+    const gy = starterIsl.y + starterIsl.radius * 0.12;
+    if (Math.abs(gx - camX) <= width * 0.75 && Math.abs(gy - camY) <= height * 0.75) {
+      drawStarterForgeBarge(ctx, gx, gy, time);
+    }
   }
 
   // Interactive World NPCs (Armeros, Forjadores, Mercaderes, Alquimistas, Cartógrafos, Chatarreros)
@@ -182,6 +190,44 @@ export function renderTopDownWorld(rc: TopDownRenderContext): void {
     const cp = rc.state.checkpoint;
     if (Math.abs(cp.x - camX) <= width * 0.65 && Math.abs(cp.y - camY) <= height * 0.65) {
       drawCheckpointBeacon(ctx, cp.x, cp.y, time);
+    }
+  }
+
+  // Custom Player Waypoint Beacon (Magenta #e879f9)
+  if (rc.state.customWaypoint) {
+    const wp = rc.state.customWaypoint;
+    if (Math.abs(wp.x - camX) <= width * 0.72 && Math.abs(wp.y - camY) <= height * 0.72) {
+      const pulse = 22 + Math.sin(time * 5.2) * 5;
+      ctx.save();
+      ctx.translate(wp.x, wp.y);
+      ctx.strokeStyle = 'rgba(232, 121, 249, 0.85)';
+      ctx.fillStyle = 'rgba(217, 70, 239, 0.16)';
+      ctx.lineWidth = 2.2;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.arc(0, 0, pulse, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#e879f9';
+      ctx.strokeStyle = '#4a044e';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, 8);
+      ctx.lineTo(-8, -8);
+      ctx.arc(0, -10, 8, Math.PI, 0);
+      ctx.lineTo(0, 8);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#fdf4ff';
+      ctx.beginPath();
+      ctx.arc(0, -10, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = '800 10px "Outfit", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#f5d0fe';
+      ctx.fillText(`📍 ${wp.label}`, 0, -24);
+      ctx.restore();
     }
   }
 
@@ -240,11 +286,14 @@ export function renderTopDownWorld(rc: TopDownRenderContext): void {
     drawDrop(ctx, drop, time);
   }
 
-  // 7. Parked Pirate Boats (from Boarding Pirates)
+  // 7. Parked Pirate Boats (from Boarding Pirates) & Rescue Lifeboats
   for (const enemy of rc.enemies) {
     if (enemy.parkedBoat) {
       drawParkedPirateBoat(ctx, enemy.parkedBoat.x, enemy.parkedBoat.y, enemy.parkedBoat.angle, enemy.isBoss, time);
     }
+  }
+  for (const boat of rc.rescueBoats || []) {
+    drawRescueBoat(ctx, boat, time);
   }
 
   // 8. Evolving Raft / Warship, Raft Farm Plots, Captive Animals & Animated Fighting Crew
@@ -279,7 +328,32 @@ export function renderTopDownWorld(rc: TopDownRenderContext): void {
   drawRaftFarmAndPens(ctx, rc.raft, rc.state, rc.islands, time);
   drawCrewOnRaft(ctx, rc.raft, rc.state, time, rc.player, rc.activeNpcChat, rc.npcLiveStates);
 
-  // 9. Skinned & Shaped Enemies + 3s Steal Timer Ring
+  // 9. Territorial Boss Zones + Skinned & Shaped Enemies + 3s Steal Timer Ring
+  for (const enemy of rc.enemies) {
+    if (
+      typeof enemy.homeX === 'number' &&
+      typeof enemy.homeY === 'number' &&
+      typeof enemy.territoryRadius === 'number' &&
+      !enemy.bountyId &&
+      !enemy.storyMissionId
+    ) {
+      const distPlayerToZone = Math.hypot(rc.player.x - enemy.homeX, rc.player.y - enemy.homeY);
+      if (distPlayerToZone <= enemy.territoryRadius + 460) {
+        const inside = distPlayerToZone <= enemy.territoryRadius;
+        ctx.save();
+        ctx.strokeStyle = inside ? 'rgba(244, 63, 94, 0.45)' : 'rgba(251, 113, 133, 0.24)';
+        ctx.fillStyle = inside ? 'rgba(244, 63, 94, 0.05)' : 'rgba(244, 63, 94, 0.02)';
+        ctx.lineWidth = inside ? 2.4 : 1.6;
+        ctx.setLineDash([10, 8]);
+        ctx.beginPath();
+        ctx.arc(enemy.homeX, enemy.homeY, enemy.territoryRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+    }
+  }
   for (const enemy of rc.enemies) {
     drawEnemy(ctx, enemy, time);
   }
@@ -396,6 +470,41 @@ export function renderTopDownWorld(rc: TopDownRenderContext): void {
       ctx.textAlign = 'center';
       ctx.fillStyle = '#67e8f9';
       ctx.fillText(`Misión (${Math.round(distM / 10)}m)`, 0, -14);
+      ctx.restore();
+    }
+  }
+
+  // Off-screen Custom Waypoint Directional Compass Arrow (Distinct Magenta #e879f9)
+  if (rc.state.customWaypoint) {
+    const wp = rc.state.customWaypoint;
+    const dxW = wp.x - rc.player.x;
+    const dyW = wp.y - rc.player.y;
+    const distW = Math.hypot(dxW, dyW);
+    if (distW > 125) {
+      const angW = Math.atan2(dyW, dxW);
+      const radW = Math.min(width, height) * 0.37;
+      const wpx = width / 2 + Math.cos(angW) * radW;
+      const wpy = height / 2 + Math.sin(angW) * radW;
+      ctx.save();
+      ctx.translate(wpx, wpy);
+      ctx.save();
+      ctx.rotate(angW);
+      ctx.fillStyle = '#e879f9';
+      ctx.strokeStyle = '#4a044e';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(15, 0);
+      ctx.lineTo(-8, -8);
+      ctx.lineTo(-4, 0);
+      ctx.lineTo(-8, 8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+      ctx.font = '800 10px "Outfit", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#f5d0fe';
+      ctx.fillText(`📍 ${wp.label} (${Math.round(distW / 10)}m)`, 0, -15);
       ctx.restore();
     }
   }
@@ -604,8 +713,10 @@ function drawIsland(
   ctx.closePath();
   ctx.fill();
 
-  ctx.strokeStyle = 'rgba(224, 242, 254, 0.38)';
-  ctx.lineWidth = 2.5;
+  ctx.strokeStyle = isl.isSafeZone
+    ? 'rgba(110, 231, 183, 0.72)'
+    : 'rgba(224, 242, 254, 0.38)';
+  ctx.lineWidth = isl.isSafeZone ? 3.2 : 2.5;
   ctx.beginPath();
   isl.points.forEach((pt, idx) => {
     const r = pt.r + 11 + Math.sin(time * 2.4 + idx * 0.7) * 2.5;
@@ -616,6 +727,34 @@ function drawIsland(
   });
   ctx.closePath();
   ctx.stroke();
+
+  if (isl.isSafeZone) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(236, 253, 245, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([12, 8]);
+    ctx.beginPath();
+    ctx.arc(0, 0, isl.radius + 36, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  const hasActiveMarinaCheckpoint = isl.nodes.some(
+    (n) => n.kind === 'marine_checkpoint' && !n.depleted
+  );
+  if (
+    (isl.factionControl === 'marina_gov' || hasActiveMarinaCheckpoint) &&
+    hasActiveMarinaCheckpoint
+  ) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(59, 130, 246, 0.65)';
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([10, 7]);
+    ctx.beginPath();
+    ctx.arc(0, 0, isl.radius * 0.66, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
 
   // Wet shoreline rim
   ctx.fillStyle = palette.wetSand;
@@ -631,8 +770,12 @@ function drawIsland(
 
   // Dry beach / rocky coast
   ctx.fillStyle = palette.shore;
-  ctx.strokeStyle = isHQ ? '#34d399' : 'rgba(255,255,255,0.28)';
-  ctx.lineWidth = isHQ ? 3.5 : 2;
+  ctx.strokeStyle = isl.isSafeZone
+    ? '#34d399'
+    : isHQ
+      ? '#34d399'
+      : 'rgba(255,255,255,0.28)';
+  ctx.lineWidth = isl.isSafeZone || isHQ ? 3.5 : 2;
   ctx.beginPath();
   isl.points.forEach((pt, idx) => {
     const px = Math.cos(pt.angle) * pt.r;
@@ -724,7 +867,7 @@ function drawIsland(
   ctx.restore();
 
   for (const node of isl.nodes) {
-    if (node.depleted) continue;
+    if (node.depleted && node.kind !== 'mystery_monolith') continue;
     ctx.save();
     ctx.translate(node.x, node.y);
 
@@ -1281,29 +1424,149 @@ function drawIsland(
       ctx.stroke();
       ctx.fillStyle = '#fbbf24';
       ctx.fillRect(-3, -2, 6, 5);
+    } else if (node.kind === 'mystery_monolith') {
+      const mDef = node.mysteryId ? MYSTERY_MAP[node.mysteryId] : undefined;
+      const glowColor = mDef?.color || '#22d3ee';
+      const active = !node.depleted;
+      if (active) {
+        const pulse = 0.55 + 0.45 * Math.sin(time * 3.8);
+        ctx.fillStyle = `${glowColor}33`;
+        ctx.beginPath();
+        ctx.arc(0, 0, 24 + pulse * 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = active ? '#0f172a' : '#1e293b';
+      ctx.strokeStyle = active ? glowColor : '#475569';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(-10, 14);
+      ctx.lineTo(-7, -18);
+      ctx.lineTo(0, -24);
+      ctx.lineTo(7, -18);
+      ctx.lineTo(10, 14);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      // Carved ancient glyph lines
+      ctx.strokeStyle = active ? glowColor : '#64748b';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(0, -13);
+      ctx.lineTo(0, 7);
+      ctx.moveTo(-5, -5);
+      ctx.lineTo(5, -5);
+      ctx.moveTo(-4, 2);
+      ctx.lineTo(4, 2);
+      ctx.stroke();
+      ctx.font = '800 9px "Outfit", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = active ? glowColor : '#94a3b8';
+      ctx.fillText(active ? `🗿 ${mDef?.shortTag || 'Misterio'}` : '🗿 Descifrado', 0, -30);
+    } else if (node.kind === 'easter_egg') {
+      const mDef = node.mysteryId ? MYSTERY_MAP[node.mysteryId] : undefined;
+      const glowColor = mDef?.color || '#fde047';
+      const pulse = 0.65 + 0.35 * Math.sin(time * 5.4);
+      ctx.fillStyle = `${glowColor}40`;
+      ctx.beginPath();
+      ctx.arc(0, 0, 19 + pulse * 3, 0, Math.PI * 2);
+      ctx.fill();
+      // Pedestal + ornate egg/relic capsule
+      ctx.fillStyle = '#422006';
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.roundRect(-10, 4, 20, 8, 3);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = glowColor;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.ellipse(0, -3, 8, 11, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(-6, -3);
+      ctx.lineTo(-2, -6);
+      ctx.lineTo(2, -1);
+      ctx.lineTo(6, -4);
+      ctx.stroke();
+      ctx.font = '800 9px "Outfit", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#fef08a';
+      ctx.fillText(`🥚 ${mDef?.shortTag || 'Secreto'}`, 0, -21);
+    } else if (node.kind === 'marine_checkpoint') {
+      // Puesto de Control de La Marina
+      ctx.fillStyle = '#0f2942';
+      ctx.strokeStyle = '#60a5fa';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.roundRect(-24, -18, 48, 36, 5);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.fillRect(-16, -10, 32, 20);
+      ctx.fillStyle = '#1d4ed8';
+      ctx.fillRect(-16, -3, 32, 6);
+
+      // Flagpole + Marina Flag
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, -10);
+      ctx.lineTo(0, -34);
+      ctx.stroke();
+      ctx.fillStyle = '#2563eb';
+      ctx.beginPath();
+      ctx.moveTo(0, -34);
+      ctx.lineTo(18, -28 + Math.sin(time * 5) * 1.8);
+      ctx.lineTo(0, -22);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.font = '800 9px "Outfit", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#93c5fd';
+      ctx.fillText('⚓ PUESTO MARINA', 0, -38);
     }
     ctx.restore();
   }
 
   ctx.save();
-  ctx.font = '700 13px "Outfit", sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillStyle = 'rgba(5, 17, 28, 0.88)';
-  ctx.fillRect(isl.x - 134, isl.y - isl.radius - 28, 268, 20);
+  const hasCulture = Boolean(isl.cultureName);
+  const boxH = hasCulture ? 32 : 20;
+  const boxY = isl.y - isl.radius - (hasCulture ? 38 : 28);
+  ctx.fillStyle = 'rgba(5, 17, 28, 0.9)';
+  ctx.fillRect(isl.x - 142, boxY, 284, boxH);
+  if (hasCulture && isl.cultureColor) {
+    ctx.strokeStyle = `${isl.cultureColor}66`;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(isl.x - 142, boxY, 284, boxH);
+  }
+  const hasActiveMarina =
+    isl.factionControl === 'marina_gov' ||
+    isl.nodes.some((n) => n.kind === 'marine_checkpoint' && !n.depleted);
+  ctx.font = '700 13px "Outfit", sans-serif';
   const rankCol = isl.pirateRank ? getPirateRankInfo(isl.pirateRank).color : '#fda4af';
   ctx.fillStyle = isl.isSafeZone
     ? '#34d399'
     : isHQ
       ? '#6ee7b7'
-      : isl.biome === 'zombie'
-        ? '#a3e635'
-        : isl.pirateRank
-          ? rankCol
-          : isl.dangerous
-            ? '#fda4af'
-            : isl.discovered
-              ? '#fde68a'
-              : '#7dd3fc';
+      : hasActiveMarina
+        ? '#60a5fa'
+        : isl.biome === 'zombie'
+          ? '#a3e635'
+          : isl.pirateRank
+            ? rankCol
+            : isl.dangerous
+              ? '#fda4af'
+              : isl.discovered
+                ? '#fde68a'
+                : '#7dd3fc';
   const moodTag =
     isl.discovered && isl.villagerPersonality === 'hostile'
       ? ' · ⚔ Hostil'
@@ -1311,17 +1574,31 @@ function drawIsland(
         ? ' · 🤪 Mensos'
         : '';
   const tag = isl.isSafeZone
-    ? `${isl.name} [🛡 ZONA SEGURA]`
+    ? `${isl.name} [🕊 ZONA SEGURA · PAZ]`
     : isHQ
       ? `${isl.name} [CUARTEL]`
-      : isl.biome === 'zombie'
-        ? `${isl.name} [☣ ZOMBIS]`
-        : isl.pirateRank
-          ? `${isl.name} [Piratas Rango ${isl.pirateRank}]`
-          : isl.dangerous
-            ? `${isl.name} (Peligro${moodTag})`
-            : `${isl.name}${moodTag}`;
-  ctx.fillText(isl.discovered ? tag : `${tag} ?`, isl.x, isl.y - isl.radius - 13);
+      : hasActiveMarina
+        ? `${isl.name} [⚓ MARINA / GOB]`
+        : isl.biome === 'zombie'
+          ? `${isl.name} [☣ ZOMBIS]`
+          : isl.pirateRank
+            ? `${isl.name} [🏴‍☠️ PIRATA ${isl.pirateRank}]`
+            : isl.biome === 'pirata'
+              ? `${isl.name} [🏴‍☠️ ISLA PIRATA]`
+              : isl.dangerous
+                ? `${isl.name} (Peligro${moodTag})`
+                : `${isl.name}${moodTag}`;
+  const mainY = hasCulture ? isl.y - isl.radius - 23 : isl.y - isl.radius - 13;
+  ctx.fillText(isl.discovered ? tag : `${tag} ?`, isl.x, mainY);
+  if (hasCulture) {
+    ctx.font = '700 10px "Outfit", sans-serif';
+    ctx.fillStyle = isl.cultureColor || '#93c5fd';
+    ctx.fillText(
+      `${isl.cultureEmblem || '🧭'} Cultura ${isl.cultureName}`,
+      isl.x,
+      isl.y - isl.radius - 10
+    );
+  }
   ctx.restore();
 }
 
@@ -1603,13 +1880,23 @@ function drawIslandStructure(
       ctx.roundRect(-22, -18, 44, 36, 5);
       ctx.fill();
       ctx.stroke();
+      // South Doorway (Puerta única de entrada)
+      ctx.fillStyle = '#071522';
+      ctx.fillRect(-10, 12, 20, 9);
+      ctx.fillStyle = '#d97706';
+      ctx.fillRect(-12, 12, 3, 9);
+      ctx.fillRect(9, 12, 3, 9);
       ctx.fillStyle = `rgba(251, 146, 60, ${0.55 + Math.sin(time * 8) * 0.2})`;
       ctx.beginPath();
-      ctx.arc(0, 24, 6, 0, Math.PI * 2);
+      ctx.arc(0, 26, 5, 0, Math.PI * 2);
       ctx.fill();
 
-      ctx.font = '700 10px "Outfit", sans-serif';
+      ctx.font = '700 8px "Outfit", sans-serif';
       ctx.textAlign = 'center';
+      ctx.fillStyle = '#fde68a';
+      ctx.fillText('PUERTA', 0, 19);
+
+      ctx.font = '700 10px "Outfit", sans-serif';
       ctx.fillStyle = '#6ee7b7';
       ctx.fillText('REFUGIO', 0, -24);
     }
@@ -1648,10 +1935,18 @@ function drawIslandStructure(
     ctx.lineTo(0, -18);
     ctx.closePath();
     ctx.fill();
-    ctx.font = '700 10px "Outfit", sans-serif';
+    ctx.fillStyle = '#071522';
+    ctx.fillRect(-11, 17, 22, 10);
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(-13, 17, 3, 10);
+    ctx.fillRect(10, 17, 3, 10);
+    ctx.font = '700 8px "Outfit", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = '#fde047';
-    ctx.fillText(isDonorSkin ? '★ CUARTEL MECENAS' : 'CUARTEL', 0, 36);
+    ctx.fillText('PUERTA', 0, 25);
+    ctx.font = '700 10px "Outfit", sans-serif';
+    ctx.fillStyle = '#fde047';
+    ctx.fillText(isDonorSkin ? '★ CUARTEL MECENAS' : 'CUARTEL', 0, 38);
   } else if (st.kind === 'warehouse') {
     ctx.fillStyle = '#451a03';
     ctx.strokeStyle = '#38bdf8';
@@ -1698,6 +1993,17 @@ function drawIslandStructure(
     ctx.fillRect(19, -20, 7, 4);
     ctx.fillRect(-26, 16, 7, 4);
     ctx.fillRect(19, 16, 7, 4);
+
+    // South Blast Door
+    ctx.fillStyle = '#020617';
+    ctx.fillRect(-11, 15, 22, 9);
+    ctx.fillStyle = '#a3e635';
+    ctx.fillRect(-13, 15, 3, 9);
+    ctx.fillRect(10, 15, 3, 9);
+    ctx.font = '700 8px "Outfit", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#bef264';
+    ctx.fillText('PUERTA', 0, 23);
 
     ctx.font = '700 9px "Outfit", sans-serif';
     ctx.textAlign = 'center';
@@ -1836,6 +2142,18 @@ function drawIslandStructure(
       ctx.closePath();
       ctx.fill();
     }
+
+    // South Entrance Archway on Settlement (Pueblo / Reino / Imperio)
+    const doorY = tier >= 3 ? 32 : tier === 2 ? 24 : 20;
+    ctx.fillStyle = '#071522';
+    ctx.fillRect(-12, doorY, 24, 10);
+    ctx.fillStyle = bannerCol;
+    ctx.fillRect(-14, doorY, 3, 10);
+    ctx.fillRect(11, doorY, 3, 10);
+    ctx.font = '700 8px "Outfit", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fde68a';
+    ctx.fillText('PUERTA', 0, doorY + 8);
 
     ctx.font = '700 10px "Outfit", sans-serif';
     ctx.textAlign = 'center';
@@ -2074,6 +2392,8 @@ function drawIslandStructure(
     ctx.textAlign = 'center';
     ctx.fillStyle = '#bef264';
     ctx.fillText('☢ REACTOR NUCLEAR', 0, -28);
+  } else if (st.kind === 'forge_gate') {
+    drawStarterForgeBarge(ctx, 0, 0, time, st.customName || '⚒ PORTÓN FORJA DEL ALBA');
   } else {
     ctx.fillStyle = '#0f172a';
     ctx.strokeStyle = '#38bdf8';
@@ -2193,28 +2513,49 @@ function drawStarterForgeBarge(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
-  time: number
+  time: number,
+  label = '⚒ PORTÓN FORJA DEL ALBA'
 ): void {
   ctx.save();
-  ctx.translate(x, y + Math.sin(time * 2) * 1.5);
-  ctx.fillStyle = '#5c3317';
-  ctx.strokeStyle = '#f97316';
-  ctx.lineWidth = 2.5;
+  ctx.translate(x, y);
+  // Stone foundation pillars & archway on island ground
+  ctx.fillStyle = '#1e293b';
+  ctx.strokeStyle = '#fb923c';
+  ctx.lineWidth = 2.4;
   ctx.beginPath();
-  ctx.roundRect(-42, -32, 84, 64, 8);
+  ctx.roundRect(-36, -24, 18, 42, 4);
+  ctx.roundRect(18, -24, 18, 42, 4);
   ctx.fill();
   ctx.stroke();
-  ctx.fillStyle = '#7c2d12';
-  ctx.fillRect(-34, -24, 68, 48);
-  // Forge glow
-  ctx.fillStyle = `rgba(251, 146, 60, ${0.55 + Math.sin(time * 6) * 0.25})`;
+
+  // Top lintel arch
+  ctx.fillStyle = '#334155';
+  ctx.strokeStyle = '#f59e0b';
+  ctx.lineWidth = 2.2;
   ctx.beginPath();
-  ctx.arc(-16, -6, 10, 0, Math.PI * 2);
+  ctx.roundRect(-40, -32, 80, 14, 5);
   ctx.fill();
-  ctx.font = '800 9.5px "Outfit", sans-serif';
+  ctx.stroke();
+
+  // Glowing dawnforge rune threshold inside gate
+  const glow = 0.55 + Math.sin(time * 5) * 0.25;
+  ctx.fillStyle = `rgba(251, 146, 60, ${glow * 0.45})`;
+  ctx.fillRect(-18, -18, 36, 36);
+  ctx.strokeStyle = `rgba(56, 248, 226, ${glow})`;
+  ctx.lineWidth = 1.6;
+  ctx.strokeRect(-14, -14, 28, 28);
+
+  // Side anvil glow
+  ctx.fillStyle = `rgba(251, 146, 60, ${glow})`;
+  ctx.beginPath();
+  ctx.arc(-27, -2, 5, 0, Math.PI * 2);
+  ctx.arc(27, -2, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.font = '800 9px "Outfit", sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#fed7aa';
-  ctx.fillText('⚒ PONTÓN FORJA DEL ALBA', 0, -39);
+  ctx.fillStyle = '#fde68a';
+  ctx.fillText(label, 0, -39);
   ctx.restore();
 }
 
@@ -2290,6 +2631,7 @@ function drawIslandUnit(
     ctx.stroke();
   } else {
     const isGuard = unit.kind === 'guard';
+    const isFarmer = unit.kind === 'farmer';
     drawAnimatedNpc(ctx, {
       x: 0,
       y: 0,
@@ -2297,13 +2639,13 @@ function drawIslandUnit(
       time,
       animState: Math.hypot(unit.vx, unit.vy) > 6 ? 'walking' : 'idle',
       scale: 0.66,
-      coatColor: isGuard ? '#dc2626' : '#0284c7',
-      trimColor: isGuard ? '#fde047' : '#bae6fd',
+      coatColor: isGuard ? '#dc2626' : isFarmer ? '#10b981' : '#0284c7',
+      trimColor: isGuard ? '#fde047' : isFarmer ? '#d1fae5' : '#bae6fd',
       hatStyle: isGuard ? 'cap' : 'straw',
-      hatColor: isGuard ? '#7f1d1d' : '#eab308',
-      prop: isGuard ? 'sword' : 'crate',
+      hatColor: isGuard ? '#7f1d1d' : isFarmer ? '#fde68a' : '#eab308',
+      prop: isGuard ? 'sword' : isFarmer ? 'hoe' : 'crate',
       label: unit.role,
-      labelColor: isGuard ? '#fecaca' : '#bae6fd',
+      labelColor: isGuard ? '#fecaca' : isFarmer ? '#6ee7b7' : '#bae6fd',
     });
   }
   ctx.restore();
@@ -2406,6 +2748,88 @@ function drawParkedPirateBoat(
   ctx.restore();
 }
 
+function drawRescueBoat(
+  ctx: CanvasRenderingContext2D,
+  boat: RescueBoatEntity,
+  time: number
+): void {
+  ctx.save();
+  ctx.translate(boat.x, boat.y + Math.sin(time * 4) * 2.2);
+
+  // Water wake behind boat
+  ctx.save();
+  ctx.rotate(boat.angle);
+  ctx.strokeStyle = 'rgba(186, 230, 253, 0.55)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(-24, -4);
+  ctx.lineTo(-42 - (Math.sin(time * 8) + 1) * 6, -12);
+  ctx.moveTo(-24, 4);
+  ctx.lineTo(-42 - (Math.sin(time * 8) + 1) * 6, 12);
+  ctx.stroke();
+
+  // Drop shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.34)';
+  ctx.beginPath();
+  ctx.ellipse(2, 5, 27, 15, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // High-visibility Orange & White Rescue Lifeboat Hull
+  ctx.fillStyle = '#ea580c';
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.moveTo(28, 0);
+  ctx.quadraticCurveTo(4, 18, -24, 13);
+  ctx.lineTo(-24, -13);
+  ctx.quadraticCurveTo(4, -18, 28, 0);
+  ctx.fill();
+  ctx.stroke();
+
+  // Inner deck & orange lifebuoy ring on bow
+  ctx.fillStyle = '#fed7aa';
+  ctx.beginPath();
+  ctx.ellipse(-2, 0, 17, 9, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = '#dc2626';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(15, 0, 4.5, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Rescued NPCs / Villagers sitting aboard
+  const maxShown = Math.min(6, boat.passengers.length);
+  for (let i = 0; i < maxShown; i++) {
+    const p = boat.passengers[i];
+    const px = -12 + (i % 3) * 8;
+    const py = i < 3 ? -4.5 : 4.5;
+    ctx.fillStyle = p.color || '#38bdf8';
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(px, py, 4.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    if (p.hatColor) {
+      ctx.fillStyle = p.hatColor;
+      ctx.beginPath();
+      ctx.arc(px, py - 1.5, 2.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+
+  // Label above rescue lifeboat
+  ctx.font = '800 10px "Outfit", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(6, 21, 34, 0.86)';
+  ctx.fillRect(-76, -34, 152, 16);
+  ctx.fillStyle = '#fdba74';
+  ctx.fillText(`🛟 Salvavidas (${boat.passengers.length}) → ${boat.targetIslandName}`, 0, -22);
+  ctx.restore();
+}
+
 function drawCheckpointBeacon(ctx: CanvasRenderingContext2D, x: number, y: number, time: number): void {
   ctx.save();
   ctx.translate(x, y);
@@ -2463,7 +2887,177 @@ function drawTopDownRaft(
   ctx.save();
   ctx.rotate(raft.angle);
 
-  if (isSloop) {
+  if (isWarship) {
+    // LEVEL 7+ (Buque de Guerra Nuclear Moderno): Stealth titanium hull, reactor core, modern bridge & radar, VLS & hydro-jets!
+    const hullLenBonus = 54 + Math.min(24, (lv - 7) * 8);
+    const beam = halfSize + 10;
+
+    // Deep water angular stealth shadow
+    ctx.fillStyle = 'rgba(2, 10, 18, 0.56)';
+    ctx.beginPath();
+    ctx.moveTo(halfSize + hullLenBonus + 6, 7);
+    ctx.lineTo(halfSize * 0.45, beam + 6);
+    ctx.lineTo(-halfSize * 0.65, beam + 2);
+    ctx.lineTo(-halfSize - 18, halfSize * 0.72 + 6);
+    ctx.lineTo(-halfSize - 18, -halfSize * 0.72 + 6);
+    ctx.lineTo(-halfSize * 0.65, -beam + 2);
+    ctx.lineTo(halfSize * 0.45, -beam + 2);
+    ctx.closePath();
+    ctx.fill();
+
+    // Twin Hydro-Jet Stern Ion Plumes
+    const thrustPulse = 14 + Math.sin(time * 22) * 4 + (Math.hypot(raft.vx, raft.vy) > 15 ? 12 : 0);
+    for (const jy of [-halfSize * 0.34, halfSize * 0.34]) {
+      const grad = ctx.createLinearGradient(-halfSize - 14, jy, -halfSize - 14 - thrustPulse, jy);
+      grad.addColorStop(0, 'rgba(34, 211, 238, 0.85)');
+      grad.addColorStop(1, 'rgba(34, 211, 238, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(-halfSize - 14, jy - 6);
+      ctx.lineTo(-halfSize - 14 - thrustPulse, jy);
+      ctx.lineTo(-halfSize - 14, jy + 6);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = '#0f172a';
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.4;
+      ctx.fillRect(-halfSize - 20, jy - 6, 8, 12);
+      ctx.strokeRect(-halfSize - 20, jy - 6, 8, 12);
+    }
+
+    // Main Faceted Stealth Titanium Hull
+    ctx.fillStyle = '#1e293b';
+    ctx.strokeStyle = state.raft.damagedMode
+      ? '#ef4444'
+      : state.warshipNuclearShield
+        ? '#a3e635'
+        : '#38bdf8';
+    ctx.lineWidth = 3.2;
+    ctx.beginPath();
+    ctx.moveTo(halfSize + hullLenBonus, 0);
+    ctx.lineTo(halfSize * 0.45, beam);
+    ctx.lineTo(-halfSize * 0.65, beam - 4);
+    ctx.lineTo(-halfSize - 15, halfSize * 0.7);
+    ctx.lineTo(-halfSize - 15, -halfSize * 0.7);
+    ctx.lineTo(-halfSize * 0.65, -beam + 4);
+    ctx.lineTo(halfSize * 0.45, -beam);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Inner Recessed Steel Combat Deck
+    ctx.fillStyle = '#0f172a';
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(halfSize + hullLenBonus - 16, 0);
+    ctx.lineTo(halfSize * 0.38, beam - 11);
+    ctx.lineTo(-halfSize * 0.6, beam - 14);
+    ctx.lineTo(-halfSize - 6, halfSize * 0.56);
+    ctx.lineTo(-halfSize - 6, -halfSize * 0.56);
+    ctx.lineTo(-halfSize * 0.6, -beam + 14);
+    ctx.lineTo(halfSize * 0.38, -beam + 11);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Tactical Flight-Deck Seam Lines & Bow Runway Stripes
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.25)';
+    ctx.lineWidth = 1.2;
+    for (let dx = -halfSize + 10; dx <= halfSize + 18; dx += 22) {
+      ctx.beginPath();
+      ctx.moveTo(dx, -beam + 16);
+      ctx.lineTo(dx, beam - 16);
+      ctx.stroke();
+    }
+    ctx.strokeStyle = '#facc15';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 6]);
+    ctx.beginPath();
+    ctx.moveTo(halfSize * 0.25, 0);
+    ctx.lineTo(halfSize + hullLenBonus - 28, 0);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Forward VLS (Vertical Launch System) Missile Cells Array on Bow
+    const vlsX = halfSize * 0.48;
+    const missileLv = state.raft.missileLevel || 0;
+    ctx.fillStyle = '#1e293b';
+    ctx.strokeStyle = missileLv > 0 ? '#fb923c' : '#475569';
+    ctx.lineWidth = 1.6;
+    ctx.fillRect(vlsX, -18, 28, 36);
+    ctx.strokeRect(vlsX, -18, 28, 36);
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 4; c++) {
+        ctx.fillStyle = missileLv > 0 && (r + c) % 2 === 0 ? '#f97316' : '#334155';
+        ctx.fillRect(vlsX + 3 + r * 8, -14 + c * 8, 5, 5);
+      }
+    }
+
+    // Bow Dual-Railgun Stabilizer Nose Tip
+    ctx.fillStyle = '#64748b';
+    ctx.fillRect(halfSize + hullLenBonus - 18, -4, 18, 3);
+    ctx.fillRect(halfSize + hullLenBonus - 18, 1, 18, 3);
+    ctx.fillStyle = '#22d3ee';
+    ctx.beginPath();
+    ctx.arc(halfSize + hullLenBonus - 4, 0, 3.2, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Glowing Cherenkov Nuclear Reactor Core (Aft-Center)
+    const coreX = -halfSize * 0.56;
+    const corePulse = 0.72 + Math.sin(time * 5.2) * 0.28;
+    const coreGrad = ctx.createRadialGradient(coreX, 0, 2, coreX, 0, 24);
+    coreGrad.addColorStop(0, `rgba(163, 230, 53, ${0.85 * corePulse})`);
+    coreGrad.addColorStop(0.55, `rgba(34, 211, 238, ${0.42 * corePulse})`);
+    coreGrad.addColorStop(1, 'rgba(34, 211, 238, 0)');
+    ctx.fillStyle = coreGrad;
+    ctx.beginPath();
+    ctx.arc(coreX, 0, 24, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#0f172a';
+    ctx.strokeStyle = '#a3e635';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(coreX, 0, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#bef264';
+    ctx.beginPath();
+    ctx.arc(coreX, 0, 5.5 * corePulse + 1.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Modern Stealth Superstructure & Armored Glass Bridge + Rotating Radar (Stern)
+    const bridgeX = -halfSize - 6;
+    const bridgeH = halfSize * 0.82;
+    ctx.fillStyle = '#334155';
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.roundRect(bridgeX, -bridgeH / 2, 30, bridgeH, 5);
+    ctx.fill();
+    ctx.stroke();
+
+    // Tinted Armored Glass Bridge Windows
+    ctx.fillStyle = '#0ea5e9';
+    ctx.fillRect(bridgeX + 19, -bridgeH * 0.34, 7, bridgeH * 0.68);
+    ctx.fillStyle = '#e0f2fe';
+    ctx.fillRect(bridgeX + 21, -bridgeH * 0.28, 3, bridgeH * 0.56);
+
+    // Spinning Tactical Phased-Array Radar Antenna on Bridge Roof
+    ctx.save();
+    ctx.translate(bridgeX + 10, 0);
+    ctx.rotate(time * 2.4);
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillRect(-10, -2.2, 20, 4.4);
+    ctx.fillStyle = '#22d3ee';
+    ctx.beginPath();
+    ctx.arc(0, 0, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  } else if (isSloop) {
     // LEVEL 2 (Balandra Armada): Clear transition from square raft into a real pointed wooden boat!
     ctx.fillStyle = 'rgba(2, 10, 18, 0.45)';
     ctx.beginPath();
@@ -2473,7 +3067,6 @@ function drawTopDownRaft(
     ctx.quadraticCurveTo(halfSize * 0.35, -halfSize - 1, halfSize + 24, 5);
     ctx.fill();
 
-    // Wooden boat hull
     ctx.fillStyle = '#7c451e';
     ctx.strokeStyle = state.raft.damagedMode ? '#ef4444' : '#e2e8f0';
     ctx.lineWidth = 3;
@@ -2485,7 +3078,6 @@ function drawTopDownRaft(
     ctx.fill();
     ctx.stroke();
 
-    // Recessed planked inner deck
     ctx.fillStyle = '#9c5e2f';
     ctx.beginPath();
     ctx.moveTo(halfSize + 10, 0);
@@ -2502,7 +3094,6 @@ function drawTopDownRaft(
       ctx.stroke();
     }
 
-    // Small wooden / donor sanctuary shelter roof over stern-mid deck
     const donorRaftRoof = Boolean(state.donorUnlocked && state.donorSkinEnabled);
     ctx.fillStyle = donorRaftRoof ? '#065f46' : '#5c3317';
     ctx.strokeStyle = donorRaftRoof ? '#fde047' : '#fbbf24';
@@ -2514,7 +3105,6 @@ function drawTopDownRaft(
     ctx.fillStyle = donorRaftRoof ? '#fbbf24' : '#d97706';
     ctx.fillRect(-halfSize * 0.55 + 4, -halfSize * 0.36 + 4, 22, halfSize * 0.72 - 8);
 
-    // Bowsprit + Single Jib Sail
     ctx.strokeStyle = '#78350f';
     ctx.lineWidth = 3.5;
     ctx.beginPath();
@@ -2534,10 +3124,9 @@ function drawTopDownRaft(
     ctx.fill();
     ctx.stroke();
   } else if (isShip) {
-    // LEVELS 3 -> 7+ (Goleta -> Bergantín -> Fragata -> Navío -> Buque de Guerra)
-    const hullLenBonus = isWarship ? 44 : isLiner ? 38 : isFrigate ? 34 : isBrig ? 30 : 26;
+    // LEVELS 3 -> 6 (Goleta -> Bergantín -> Fragata -> Navío Blindado)
+    const hullLenBonus = isLiner ? 38 : isFrigate ? 34 : isBrig ? 30 : 26;
 
-    // Deep water shadow
     ctx.fillStyle = 'rgba(2, 10, 18, 0.5)';
     ctx.beginPath();
     ctx.moveTo(halfSize + hullLenBonus + 4, 6);
@@ -2546,28 +3135,23 @@ function drawTopDownRaft(
     ctx.quadraticCurveTo(halfSize * 0.25, -halfSize - 4, halfSize + hullLenBonus + 4, 6);
     ctx.fill();
 
-    // Main Ship Hull with steel/brass armor trim
-    ctx.fillStyle = isWarship
-      ? '#3a1d11'
-      : isLiner
-        ? '#542a16'
-        : isFrigate
-          ? '#6b3719'
-          : isBrig
-            ? '#7c451e'
-            : '#8d5027';
+    ctx.fillStyle = isLiner
+      ? '#475569'
+      : isFrigate
+        ? '#6b3719'
+        : isBrig
+          ? '#7c451e'
+          : '#8d5027';
     ctx.strokeStyle = state.raft.damagedMode
       ? '#ef4444'
-      : isWarship
-        ? '#facc15'
-        : isLiner
-          ? '#e2e8f0'
-          : isFrigate
-            ? '#94a3b8'
-            : isBrig
-              ? '#f59e0b'
-              : '#cbd5e1';
-    ctx.lineWidth = isWarship ? 5 : isLiner ? 4 : isFrigate ? 3.5 : 3;
+      : isLiner
+        ? '#e2e8f0'
+        : isFrigate
+          ? '#94a3b8'
+          : isBrig
+            ? '#f59e0b'
+            : '#cbd5e1';
+    ctx.lineWidth = isLiner ? 4 : isFrigate ? 3.5 : 3;
     ctx.beginPath();
     ctx.moveTo(halfSize + hullLenBonus, 0);
     ctx.quadraticCurveTo(halfSize * 0.22, halfSize + 6, -halfSize - 12, halfSize * 0.84);
@@ -2576,10 +3160,9 @@ function drawTopDownRaft(
     ctx.fill();
     ctx.stroke();
 
-    // Ironclad side armor plates for Frigate/Liner/Warship
     if (isFrigate) {
-      ctx.strokeStyle = isWarship ? '#94a3b8' : '#64748b';
-      ctx.lineWidth = isWarship ? 3 : 2;
+      ctx.strokeStyle = isLiner ? '#cbd5e1' : '#64748b';
+      ctx.lineWidth = 2.4;
       ctx.beginPath();
       ctx.moveTo(-halfSize + 10, -halfSize * 0.72);
       ctx.quadraticCurveTo(halfSize * 0.2, -halfSize * 0.85, halfSize + hullLenBonus - 16, -6);
@@ -2588,8 +3171,7 @@ function drawTopDownRaft(
       ctx.stroke();
     }
 
-    // Recessed planked main deck + central spine beam
-    ctx.fillStyle = isWarship ? '#6d3b1d' : '#9c5e2f';
+    ctx.fillStyle = isLiner ? '#334155' : '#9c5e2f';
     ctx.beginPath();
     ctx.moveTo(halfSize + hullLenBonus - 14, 0);
     ctx.quadraticCurveTo(halfSize * 0.2, halfSize * 0.78, -halfSize - 2, halfSize * 0.72);
@@ -2597,7 +3179,7 @@ function drawTopDownRaft(
     ctx.quadraticCurveTo(halfSize * 0.2, -halfSize * 0.78, halfSize + hullLenBonus - 14, 0);
     ctx.fill();
 
-    ctx.strokeStyle = 'rgba(40, 18, 5, 0.45)';
+    ctx.strokeStyle = isLiner ? 'rgba(148, 163, 184, 0.35)' : 'rgba(40, 18, 5, 0.45)';
     ctx.lineWidth = 1.4;
     for (let py = -halfSize * 0.64; py <= halfSize * 0.64; py += 12) {
       ctx.beginPath();
@@ -2606,142 +3188,73 @@ function drawTopDownRaft(
       ctx.stroke();
     }
 
-    // Bowsprit & Rigging Stay Lines (Lv4+)
-    if (isBrig) {
+    if (isBrig && !isLiner) {
       ctx.strokeStyle = '#78350f';
       ctx.lineWidth = 4.2;
       ctx.beginPath();
       ctx.moveTo(halfSize + hullLenBonus - 8, 0);
       ctx.lineTo(halfSize + hullLenBonus + 24, 0);
       ctx.stroke();
-      ctx.strokeStyle = 'rgba(226, 232, 240, 0.45)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(halfSize + hullLenBonus + 22, 0);
-      ctx.lineTo(halfSize * 0.45, -halfSize * 0.6);
-      ctx.moveTo(halfSize + hullLenBonus + 22, 0);
-      ctx.lineTo(halfSize * 0.45, halfSize * 0.6);
-      ctx.stroke();
     }
 
-    // Golden Figurehead (Lv6+)
     if (isLiner) {
-      ctx.fillStyle = '#fbbf24';
+      ctx.fillStyle = '#38bdf8';
       ctx.beginPath();
       ctx.arc(halfSize + hullLenBonus + 2, 0, 5.5, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Steel Ram Prow (Lv7 Buque de Guerra!)
-    if (isWarship) {
-      ctx.fillStyle = '#cbd5e1';
-      ctx.strokeStyle = '#475569';
-      ctx.lineWidth = 1.8;
-      ctx.beginPath();
-      ctx.moveTo(halfSize + hullLenBonus + 22, 0);
-      ctx.lineTo(halfSize + hullLenBonus - 4, -10);
-      ctx.lineTo(halfSize + hullLenBonus - 4, 10);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    }
-
-    // Broadside Cannons (Lv5=4, Lv6=6, Lv7=8)
     if (isFrigate) {
-      const cannonXs = isWarship
-        ? [-halfSize * 0.36, -halfSize * 0.08, halfSize * 0.2, halfSize * 0.48]
-        : isLiner
-          ? [-halfSize * 0.3, 0, halfSize * 0.3]
-          : [-halfSize * 0.15, halfSize * 0.25];
+      const cannonXs = isLiner
+        ? [-halfSize * 0.3, 0, halfSize * 0.3]
+        : [-halfSize * 0.15, halfSize * 0.25];
       for (const cx of cannonXs) {
         ctx.fillStyle = '#0f172a';
         ctx.fillRect(cx - 4, -halfSize * 0.84 - 5, 8, 9);
         ctx.fillRect(cx - 4, halfSize * 0.84 - 4, 8, 9);
-        ctx.fillStyle = isWarship ? '#fbbf24' : '#94a3b8';
+        ctx.fillStyle = '#94a3b8';
         ctx.fillRect(cx - 2.5, -halfSize * 0.84 - 6, 5, 2);
         ctx.fillRect(cx - 2.5, halfSize * 0.84 + 4, 5, 2);
       }
     }
 
-    // Enclosed Deckhouse Roof & Raised Armored Bridge / Stern Castle (at stern, keeping mid-deck corral open!)
-    const roofW = isWarship ? 34 : isFrigate ? 28 : 24;
-    const roofH = halfSize * (isWarship ? 0.88 : 0.78);
-    ctx.fillStyle = isWarship ? '#2c150c' : '#451a03';
-    ctx.strokeStyle = isWarship ? '#fbbf24' : '#d97706';
+    const roofW = isFrigate ? 28 : 24;
+    const roofH = halfSize * 0.78;
+    ctx.fillStyle = isLiner ? '#1e293b' : '#451a03';
+    ctx.strokeStyle = isLiner ? '#38bdf8' : '#d97706';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.roundRect(-halfSize - 6, -roofH / 2, roofW, roofH, 4);
     ctx.fill();
     ctx.stroke();
-    // Cabin roof planks & skylight
-    ctx.fillStyle = isWarship ? '#7f1d1d' : '#78350f';
+    ctx.fillStyle = isLiner ? '#475569' : '#78350f';
     ctx.fillRect(-halfSize, -roofH / 2 + 5, roofW - 12, roofH - 10);
     ctx.fillStyle = '#38bdf8';
     ctx.fillRect(-halfSize + 10, -7, 10, 14);
 
-    // Stern Gallery Lantern Windows (Lv6+)
-    if (isLiner) {
-      ctx.fillStyle = '#fef08a';
-      ctx.fillRect(-halfSize - 8, -16, 3.5, 6);
-      ctx.fillRect(-halfSize - 8, -3, 3.5, 6);
-      ctx.fillRect(-halfSize - 8, 10, 3.5, 6);
-    }
-
-    // Billowing Rigged Sails + Masts + Warship Crest
-    const sailXs = isWarship
-      ? [-halfSize * 0.22, halfSize * 0.14, halfSize * 0.5]
-      : isLiner
-        ? [-halfSize * 0.2, halfSize * 0.15, halfSize * 0.45]
-        : isBrig
-          ? [-halfSize * 0.1, halfSize * 0.32]
-          : [halfSize * 0.14];
-    sailXs.forEach((sx, idx) => {
-      const span = halfSize * (idx === 0 && isWarship ? 0.58 : 0.66);
-      // Yardarm beam
-      ctx.strokeStyle = '#78350f';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(sx, -span - 4);
-      ctx.lineTo(sx, span + 4);
-      ctx.stroke();
-
-      // Sail canvas
-      ctx.fillStyle = isWarship ? '#fef2f2' : '#f8fafc';
-      ctx.strokeStyle = isWarship ? '#dc2626' : isFrigate ? '#fbbf24' : '#cbd5e1';
-      ctx.lineWidth = 1.8;
-      ctx.beginPath();
-      ctx.moveTo(sx + 4, -span);
-      ctx.quadraticCurveTo(sx + 18, 0, sx + 4, span);
-      ctx.lineTo(sx - 3, span);
-      ctx.quadraticCurveTo(sx + 10, 0, sx - 3, -span);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-
-      // Warship emblem stripe on main sail
-      if (isWarship) {
-        ctx.fillStyle = '#dc2626';
+    if (!isLiner) {
+      const sailXs = isBrig ? [-halfSize * 0.1, halfSize * 0.32] : [halfSize * 0.14];
+      sailXs.forEach((sx) => {
+        const span = halfSize * 0.66;
+        ctx.strokeStyle = '#78350f';
+        ctx.lineWidth = 3;
         ctx.beginPath();
-        ctx.arc(sx + 6, 0, 5, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      // Mast cap
-      ctx.fillStyle = '#451a03';
-      ctx.beginPath();
-      ctx.arc(sx + 2, 0, 3.5, 0, Math.PI * 2);
-      ctx.fill();
-    });
+        ctx.moveTo(sx, -span - 4);
+        ctx.lineTo(sx, span + 4);
+        ctx.stroke();
 
-    // Fluttering Warship Pennant Flag at Masthead (Lv5+)
-    if (isFrigate) {
-      const fx = isWarship ? halfSize * 0.14 : halfSize * 0.32;
-      ctx.fillStyle = isWarship ? '#dc2626' : '#f59e0b';
-      ctx.beginPath();
-      ctx.moveTo(fx, 0);
-      ctx.lineTo(fx - 22, -5 + Math.sin(time * 9) * 2.5);
-      ctx.lineTo(fx - 18, 2 + Math.sin(time * 9) * 2.5);
-      ctx.closePath();
-      ctx.fill();
+        ctx.fillStyle = '#f8fafc';
+        ctx.strokeStyle = isFrigate ? '#fbbf24' : '#cbd5e1';
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.moveTo(sx + 4, -span);
+        ctx.quadraticCurveTo(sx + 18, 0, sx + 4, span);
+        ctx.lineTo(sx - 3, span);
+        ctx.quadraticCurveTo(sx + 10, 0, sx - 3, -span);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      });
     }
   } else {
     // LEVEL 1 (Balsa de Náufrago): Detailed lashed timber raft WITH pre-upgrade canopy/roof!
@@ -2750,7 +3263,6 @@ function drawTopDownRaft(
     ctx.roundRect(-halfSize + 4, -halfSize + 4, halfSize * 2, halfSize * 2, 10);
     ctx.fill();
 
-    // Individual rounded buoyant timber logs
     const logCount = 7;
     const logW = (halfSize * 2 - 8) / logCount;
     for (let i = 0; i < logCount; i++) {
@@ -2763,14 +3275,12 @@ function drawTopDownRaft(
       ctx.fill();
       ctx.stroke();
 
-      // Wood grain knot
       ctx.fillStyle = 'rgba(69, 26, 3, 0.45)';
       ctx.beginPath();
       ctx.ellipse((i % 3 - 1) * 18, ly + logW * 0.5, 5, 2, 0, 0, Math.PI * 2);
       ctx.fill();
     }
 
-    // Cross-beam deck planks
     ctx.fillStyle = '#a1622e';
     ctx.strokeStyle = '#5c3317';
     ctx.lineWidth = 1.5;
@@ -2784,7 +3294,6 @@ function drawTopDownRaft(
       ctx.stroke();
     }
 
-    // Corner Rope Lashings
     ctx.strokeStyle = '#eab308';
     ctx.lineWidth = 2.2;
     for (const cx of [-halfSize + 10, halfSize - 14]) {
@@ -2793,21 +3302,17 @@ function drawTopDownRaft(
       }
     }
 
-    // Pre-Upgrade Small Timber & Canvas Canopy Roof (compact at aft-port corner, away from the open corral!)
     const roofX = -halfSize + 10;
     const roofY = -halfSize + 10;
     const roofW = 28;
     const roofH = 22;
-    // Soft canopy shadow on deck
     ctx.fillStyle = 'rgba(15, 23, 42, 0.34)';
     ctx.fillRect(roofX + 3, roofY + 4, roofW, roofH);
-    // Support bamboo/wood posts
     ctx.fillStyle = '#451a03';
     ctx.fillRect(roofX, roofY, 4, 4);
     ctx.fillRect(roofX + roofW - 4, roofY, 4, 4);
     ctx.fillRect(roofX, roofY + roofH - 4, 4, 4);
     ctx.fillRect(roofX + roofW - 4, roofY + roofH - 4, 4, 4);
-    // Tarp / Palm-thatched or Donor Sanctuary shelter roof
     const donorCanopy = Boolean(state.donorUnlocked && state.donorSkinEnabled);
     ctx.fillStyle = donorCanopy ? '#047857' : '#d97706';
     ctx.strokeStyle = donorCanopy ? '#fde047' : '#fef3c7';
@@ -2816,7 +3321,6 @@ function drawTopDownRaft(
     ctx.roundRect(roofX, roofY, roofW, roofH, 3);
     ctx.fill();
     ctx.stroke();
-    // Striped canvas slats & ridge pole
     ctx.fillStyle = donorCanopy ? '#f59e0b' : '#b45309';
     ctx.fillRect(roofX + 5, roofY + 2, 5, roofH - 4);
     ctx.fillRect(roofX + 16, roofY + 2, 5, roofH - 4);
@@ -2827,7 +3331,6 @@ function drawTopDownRaft(
     ctx.lineTo(roofX + roofW, roofY + roofH / 2);
     ctx.stroke();
 
-    // Hanging warm lantern at canopy corner
     ctx.fillStyle = '#fef08a';
     ctx.beginPath();
     ctx.arc(roofX + roofW + 2, roofY + roofH - 2, 2.8, 0, Math.PI * 2);
@@ -2835,21 +3338,21 @@ function drawTopDownRaft(
   }
 
   // Storage Crate (center-aft)
-  ctx.fillStyle = '#b45309';
-  ctx.strokeStyle = '#fbbf24';
+  ctx.fillStyle = isWarship ? '#334155' : '#b45309';
+  ctx.strokeStyle = isWarship ? '#38bdf8' : '#fbbf24';
   ctx.lineWidth = 1.5;
   ctx.fillRect(-halfSize * 0.25, -14, 15, 15);
   ctx.strokeRect(-halfSize * 0.25, -14, 15, 15);
 
-  // Helm Wheel (Bow)
+  // Helm Wheel / Modern Bridge Console (Bow)
   ctx.fillStyle = '#0f172a';
-  ctx.strokeStyle = '#e2e8f0';
+  ctx.strokeStyle = isWarship ? '#22d3ee' : '#e2e8f0';
   ctx.lineWidth = 2;
   ctx.beginPath();
   ctx.arc(halfSize - 18, 0, 9, 0, Math.PI * 2);
   ctx.fill();
   ctx.stroke();
-  ctx.strokeStyle = '#94a3b8';
+  ctx.strokeStyle = isWarship ? '#22d3ee' : '#94a3b8';
   ctx.lineWidth = 1.2;
   ctx.beginPath();
   ctx.moveTo(halfSize - 27, 0);
@@ -2875,7 +3378,7 @@ function drawTopDownRaft(
     ctx.fillRect(-10, -halfSize * 0.68, 22, 10);
     ctx.strokeRect(-10, -halfSize * 0.68, 22, 10);
   }
-  if (state.raft.engineLevel >= 1) {
+  if (state.raft.engineLevel >= 1 && !isWarship) {
     ctx.fillStyle = '#334155';
     ctx.strokeStyle = '#64748b';
     ctx.lineWidth = 1.2;
@@ -2894,11 +3397,20 @@ function drawTopDownRaft(
     ctx.arc(-halfSize * 0.45, -halfSize * 0.65 - 15, 2.8, 0, Math.PI * 2);
     ctx.fill();
   }
+  if ((state.raft.shieldLevel || 0) > 0) {
+    ctx.strokeStyle = `rgba(56, 189, 248, ${0.42 + Math.sin(time * 5) * 0.18})`;
+    ctx.lineWidth = 2.2;
+    ctx.setLineDash([10, 5]);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, halfSize + (isWarship ? 34 : 18), halfSize + 10, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
   if (state.warshipNuclearShield) {
     ctx.strokeStyle = `rgba(163, 230, 53, ${0.45 + Math.sin(time * 4) * 0.2})`;
     ctx.lineWidth = 2.6;
     ctx.beginPath();
-    ctx.ellipse(0, 0, halfSize + 24, halfSize + 14, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, halfSize + (isWarship ? 42 : 24), halfSize + 16, 0, 0, Math.PI * 2);
     ctx.stroke();
   }
   ctx.restore();
@@ -2920,26 +3432,75 @@ function drawTopDownRaft(
 
   ctx.restore();
 
+  // Up to 8 Naval Turrets (Dual-Barrel Railguns on Modern Warship Lv.7+, Naval Cannons on Lv.1-6)
   if (state.raft.turretLevel > 0) {
-    const nearest = enemies[0];
+    const nearest = enemies.find((e) => !e.isLeviathan) || enemies[0];
     const aimAngle = nearest ? Math.atan2(nearest.y - raft.y, nearest.x - raft.x) : raft.angle;
-    const turCount = Math.min(4, state.raft.turretLevel);
+    const turCount = Math.min(8, state.raft.turretLevel);
+    const cosR = Math.cos(raft.angle);
+    const sinR = Math.sin(raft.angle);
+    const hardpoints: Array<[number, number]> = [
+      [halfSize * 0.42, -halfSize * 0.44],
+      [halfSize * 0.42, halfSize * 0.44],
+      [-halfSize * 0.15, -halfSize * 0.56],
+      [-halfSize * 0.15, halfSize * 0.56],
+      [halfSize * 0.72, 0],
+      [-halfSize * 0.55, -halfSize * 0.5],
+      [-halfSize * 0.55, halfSize * 0.5],
+      [-halfSize * 0.75, 0],
+    ];
     for (let i = 0; i < turCount; i++) {
-      const offAngle = (i / Math.max(1, turCount)) * Math.PI * 2 + 0.5;
-      const tx = raft.x + Math.cos(offAngle) * (halfSize * 0.42);
-      const ty = raft.y + Math.sin(offAngle) * (halfSize * 0.42);
+      const [lx, ly] = hardpoints[i];
+      const tx = raft.x + lx * cosR - ly * sinR;
+      const ty = raft.y + lx * sinR + ly * cosR;
       ctx.save();
       ctx.translate(tx, ty);
       ctx.rotate(aimAngle);
-      ctx.fillStyle = '#334155';
-      ctx.strokeStyle = '#94a3b8';
-      ctx.lineWidth = 1.2;
+      ctx.fillStyle = isWarship ? '#1e293b' : '#334155';
+      ctx.strokeStyle = isWarship ? '#22d3ee' : '#94a3b8';
+      ctx.lineWidth = 1.3;
       ctx.beginPath();
-      ctx.arc(0, 0, 7.5, 0, Math.PI * 2);
+      ctx.arc(0, 0, isWarship ? 8 : 7, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = '#fbbf24';
-      ctx.fillRect(0, -2.5, 14, 5);
+      if (isWarship) {
+        ctx.fillStyle = '#38bdf8';
+        ctx.fillRect(1, -3.4, 15, 2.2);
+        ctx.fillRect(1, 1.2, 15, 2.2);
+      } else {
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillRect(0, -2.5, 14, 5);
+      }
+      ctx.restore();
+    }
+  }
+
+  // Orbiting Defense Drones
+  const droneCount = Math.min(3, state.raft.droneLevel || 0);
+  if (droneCount > 0) {
+    const orbitR = halfSize + (isWarship ? 48 : 30);
+    for (let d = 0; d < droneCount; d++) {
+      const da = time * 2.1 + (d * Math.PI * 2) / droneCount;
+      const dx = raft.x + Math.cos(da) * orbitR;
+      const dy = raft.y + Math.sin(da) * orbitR;
+      ctx.save();
+      ctx.translate(dx, dy);
+      ctx.rotate(time * 4);
+      ctx.fillStyle = '#0f172a';
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(0, -6);
+      ctx.lineTo(6, 0);
+      ctx.lineTo(0, 6);
+      ctx.lineTo(-6, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#22d3ee';
+      ctx.beginPath();
+      ctx.arc(0, 0, 2.2, 0, Math.PI * 2);
+      ctx.fill();
       ctx.restore();
     }
   }
@@ -3186,7 +3747,7 @@ export interface AnimatedNpcOptions {
   skinColor?: string;
   hatStyle?: 'tricorn' | 'bandana' | 'straw' | 'cap' | 'hood' | 'none';
   hatColor?: string;
-  prop?: 'wrench' | 'spyglass' | 'crate' | 'lantern' | 'cannon_ram' | 'sword' | 'scroll' | 'fish' | 'none';
+  prop?: 'wrench' | 'spyglass' | 'crate' | 'lantern' | 'cannon_ram' | 'sword' | 'scroll' | 'fish' | 'hoe' | 'none';
   label?: string;
   labelColor?: string;
   phaseOffset?: number;
@@ -3561,6 +4122,11 @@ export function renderNpcAnimationState(ctx: CanvasRenderingContext2D, opts: Ani
       ctx.beginPath();
       ctx.ellipse(12 + armSwingR * 0.5, 6, 5.5, 2.6, 0.3, 0, Math.PI * 2);
       ctx.fill();
+    } else if (prop === 'hoe') {
+      ctx.fillStyle = '#92400e';
+      ctx.fillRect(4 + armSwingR, 7.5, 16, 2.2);
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(17 + armSwingR, 4, 2.5, 7);
     }
   }
 
@@ -3973,6 +4539,35 @@ function drawTopDownPlayer(
     ctx.fill();
   }
 
+  const sitState = state.vitals?.situationalState || 'normal';
+  const sitMeta = SITUATIONAL_META[sitState];
+  if (sitState !== 'normal') {
+    const pulseR = (sitState === 'berserker' ? 27 : 23) + Math.sin(time * (sitState === 'berserker' ? 9 : 6)) * 3.5;
+    const sGrad = ctx.createRadialGradient(0, 0, 6, 0, 0, pulseR);
+    sGrad.addColorStop(0, `${sitMeta.color}55`);
+    sGrad.addColorStop(1, `${sitMeta.color}00`);
+    ctx.fillStyle = sGrad;
+    ctx.beginPath();
+    ctx.arc(0, 0, pulseR, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = `${sitMeta.color}aa`;
+    ctx.lineWidth = sitState === 'berserker' ? 2.2 : 1.5;
+    ctx.beginPath();
+    ctx.arc(0, 0, 20, time * 2.2, time * 2.2 + Math.PI * 1.35);
+    ctx.stroke();
+
+    if (sitState === 'berserker') {
+      for (let sp = 0; sp < 4; sp++) {
+        const ang = time * 4 + sp * (Math.PI * 0.5);
+        ctx.fillStyle = sp % 2 === 0 ? '#fb7185' : '#fbbf24';
+        ctx.beginPath();
+        ctx.arc(Math.cos(ang) * 22, Math.sin(ang) * 22, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
   if (state.stealthTimer > 0) {
     ctx.strokeStyle = 'rgba(167, 139, 250, 0.7)';
     ctx.lineWidth = 2;
@@ -4178,6 +4773,13 @@ function drawTopDownPlayer(
       ctx.fillText(`${isDonorSkin ? '★ ' : ''}${clanTag}${titleName || ''}`, 0, -20);
     }
 
+    if (sitState !== 'normal') {
+      ctx.font = '800 8.5px "Outfit", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = sitMeta.color;
+      ctx.fillText(`${sitMeta.icon} ${sitMeta.shortLabel.toUpperCase()}`, 0, -30);
+    }
+
     ctx.restore();
   }
 
@@ -4189,7 +4791,47 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: EnemyEntity, time: number):
   const moveSwing = Math.sin(e.gaitPhase) * 4.5;
   const ang = Math.atan2(e.vy, e.vx);
 
-  if (e.isBandit) {
+  if (e.kind === 'marine_patrol' || e.kind === 'marine_captain' || e.kind === 'gov_agent') {
+    const isGov = e.kind === 'gov_agent';
+    const isCapt = e.kind === 'marine_captain';
+    if (!e.onLand && !e.boardedRaft) {
+      ctx.save();
+      ctx.rotate(ang);
+      ctx.fillStyle = isGov ? '#090d16' : '#f8fafc';
+      ctx.strokeStyle = isGov ? '#fbbf24' : '#2563eb';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(e.radius + 16, 0);
+      ctx.quadraticCurveTo(0, e.radius + 6, -e.radius - 12, e.radius * 0.76);
+      ctx.lineTo(-e.radius - 12, -e.radius * 0.76);
+      ctx.quadraticCurveTo(0, -e.radius - 6, e.radius + 16, 0);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = isGov ? '#1e293b' : '#3b82f6';
+      ctx.fillRect(-4, -e.radius * 0.65, 8, e.radius * 1.3);
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.rotate(ang);
+    ctx.fillStyle = e.hitT > 0 ? '#ffffff' : isGov ? '#111827' : '#f8fafc';
+    ctx.strokeStyle = isGov ? '#fbbf24' : '#1d4ed8';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, e.radius * 0.62, e.radius * 0.84, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    if (isCapt || isGov) {
+      ctx.fillStyle = isGov ? '#fbbf24' : '#facc15';
+      ctx.fillRect(-3, -e.radius * 0.85, 6, 4);
+      ctx.fillRect(-3, e.radius * 0.85 - 4, 6, 4);
+    }
+    ctx.fillStyle = isGov ? '#f8fafc' : '#1e3a8a';
+    ctx.beginPath();
+    ctx.arc(3, 0, e.radius * 0.36, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  } else if (e.isBandit) {
     if (!e.onLand && !e.boardedRaft) {
       // Sailing on Pirate Boat
       ctx.save();
@@ -4549,6 +5191,272 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: EnemyEntity, time: number):
     ctx.arc(-4, -4, 2.2, 0, Math.PI * 2);
     ctx.arc(4, -4, 2.2, 0, Math.PI * 2);
     ctx.fill();
+  } else if (e.kind.startsWith('abysmal_')) {
+    // 11 Abyssal Semi-Bosses & Abyssal Bosses
+    const abyssPulse = 1 + Math.sin(time * 5 + e.id) * 0.08;
+    const isBoss = e.isBoss;
+    const auraR = e.radius * (isBoss ? 1.55 : 1.32);
+    const aGrad = ctx.createRadialGradient(0, 0, e.radius * 0.25, 0, 0, auraR);
+    aGrad.addColorStop(0, isBoss ? 'rgba(192, 38, 211, 0.34)' : 'rgba(6, 182, 212, 0.28)');
+    aGrad.addColorStop(1, 'rgba(2, 6, 23, 0)');
+    ctx.fillStyle = aGrad;
+    ctx.beginPath();
+    ctx.arc(0, 0, auraR, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.save();
+    ctx.rotate(ang);
+    if (e.kind === 'abysmal_eel') {
+      // Serpentina eléctrica con arcos voltaicos
+      for (let s = 4; s >= 0; s--) {
+        const sx = -s * 12;
+        const sy = Math.sin(time * 8 + s * 0.8 + e.id) * 9;
+        const sr = e.radius * (1 - s * 0.14);
+        ctx.fillStyle = e.hitT > 0 ? '#ffffff' : s === 0 ? '#0e7490' : '#083344';
+        ctx.strokeStyle = '#22d3ee';
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.strokeStyle = '#67e8f9';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(8, -10);
+      ctx.lineTo(18, -4);
+      ctx.lineTo(13, 6);
+      ctx.stroke();
+    } else if (e.kind === 'abysmal_knight' || e.kind === 'abysmal_warden') {
+      // Caballero Coralino Ahogado / Centinela Óseo Abismal
+      const isWarden = e.kind === 'abysmal_warden';
+      ctx.fillStyle = col;
+      ctx.strokeStyle = isWarden ? '#e2e8f0' : '#2dd4bf';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.roundRect(-e.radius * 0.72, -e.radius * 0.88, e.radius * 1.44, e.radius * 1.76, 8);
+      ctx.fill();
+      ctx.stroke();
+      // Shoulder spikes / horn helm
+      ctx.fillStyle = isWarden ? '#cbd5e1' : '#f43f5e';
+      ctx.beginPath();
+      ctx.moveTo(2, -e.radius * 0.9);
+      ctx.lineTo(14, -e.radius * 1.25);
+      ctx.lineTo(-4, -e.radius * 0.55);
+      ctx.moveTo(2, e.radius * 0.9);
+      ctx.lineTo(14, e.radius * 1.25);
+      ctx.lineTo(-4, e.radius * 0.55);
+      ctx.fill();
+      // Abyssal trident / glaive
+      ctx.fillStyle = isWarden ? '#f8fafc' : '#22d3ee';
+      ctx.fillRect(6, 7, e.radius + 14, 4);
+      ctx.fillStyle = isWarden ? '#fb7185' : '#5eead4';
+      ctx.beginPath();
+      ctx.arc(4, -5, 3, 0, Math.PI * 2);
+      ctx.arc(4, 5, 3, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (e.kind === 'abysmal_siren') {
+      // Sirena de la Fosa Negra con halo sónico
+      ctx.strokeStyle = `rgba(168, 85, 247, ${0.4 + Math.sin(time * 9) * 0.3})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, e.radius + 10 + (time * 18) % 14, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = col;
+      ctx.strokeStyle = '#c084fc';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, e.radius * 0.85, e.radius * 0.65, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#06b6d4';
+      ctx.beginPath();
+      ctx.moveTo(-e.radius * 0.7, 0);
+      ctx.lineTo(-e.radius - 14, -11);
+      ctx.lineTo(-e.radius - 14, 11);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = '#f0abfc';
+      ctx.beginPath();
+      ctx.arc(5, -4, 2.8, 0, Math.PI * 2);
+      ctx.arc(5, 4, 2.8, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (e.kind === 'abysmal_angler') {
+      // Rape Abismal Devorador con señuelo bioluminiscente frontal
+      ctx.fillStyle = col;
+      ctx.strokeStyle = '#1e1b4b';
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, e.radius, e.radius * 0.84, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // Mandíbulas con colmillos
+      ctx.fillStyle = '#f8fafc';
+      for (let f = -2; f <= 2; f++) {
+        ctx.beginPath();
+        ctx.moveTo(e.radius * 0.65, f * 5 - 2);
+        ctx.lineTo(e.radius + 8, f * 5);
+        ctx.lineTo(e.radius * 0.65, f * 5 + 2);
+        ctx.fill();
+      }
+      // Antena luminosa
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(4, 0);
+      ctx.quadraticCurveTo(e.radius * 0.8, -14, e.radius + 14, -4);
+      ctx.stroke();
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.arc(e.radius + 15, -4, 5 * abyssPulse, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (e.kind === 'abysmal_golem') {
+      // Coloso de Magma Submarino
+      ctx.fillStyle = '#292524';
+      ctx.strokeStyle = '#fb923c';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2;
+        const r = i % 2 === 0 ? e.radius : e.radius * 0.84;
+        if (i === 0) ctx.moveTo(Math.cos(a) * r, Math.sin(a) * r);
+        else ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.strokeStyle = '#f97316';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(-12, -10);
+      ctx.lineTo(12, 10);
+      ctx.moveTo(-10, 12);
+      ctx.lineTo(10, -12);
+      ctx.stroke();
+    } else if (e.kind === 'abysmal_empress') {
+      // BOSS: Emperatriz Medusoide del Vacío
+      for (let t = 0; t < 10; t++) {
+        const a = (t / 10) * Math.PI * 2 + time * 1.1;
+        ctx.strokeStyle = t % 2 === 0 ? '#e879f9' : '#22d3ee';
+        ctx.lineWidth = 3.2;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(
+          Math.cos(a + 0.3) * (e.radius + 14),
+          Math.sin(a + 0.3) * (e.radius + 14),
+          Math.cos(a - 0.15) * (e.radius + 26),
+          Math.sin(a - 0.15) * (e.radius + 26)
+        );
+        ctx.stroke();
+      }
+      ctx.fillStyle = col;
+      ctx.strokeStyle = '#f0abfc';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, e.radius * abyssPulse, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#fde047';
+      ctx.beginPath();
+      ctx.arc(6, 0, e.radius * 0.32, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (e.kind === 'abysmal_behemoth') {
+      // BOSS: Behemot Triturador de Quillas
+      ctx.fillStyle = '#1f2937';
+      ctx.strokeStyle = '#fb7185';
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, e.radius * 1.08, e.radius * 0.88, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      // Placas acorazadas y cuernos de ariete
+      ctx.fillStyle = '#9f1239';
+      ctx.beginPath();
+      ctx.moveTo(e.radius * 0.65, -18);
+      ctx.lineTo(e.radius + 20, -10);
+      ctx.lineTo(e.radius * 0.65, -2);
+      ctx.moveTo(e.radius * 0.65, 18);
+      ctx.lineTo(e.radius + 20, 10);
+      ctx.lineTo(e.radius * 0.65, 2);
+      ctx.fill();
+      ctx.fillStyle = '#fde047';
+      ctx.beginPath();
+      ctx.arc(14, -10, 4.5, 0, Math.PI * 2);
+      ctx.arc(14, 10, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (e.kind === 'abysmal_necromancer') {
+      // BOSS: Archiliche de las Cenizas
+      ctx.strokeStyle = '#a855f7';
+      ctx.lineWidth = 2.4;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.arc(0, 0, e.radius + 10, time, time + Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#3b0764';
+      ctx.strokeStyle = '#e879f9';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(0, 0, e.radius * 0.85, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(6, -2, e.radius + 16, 4);
+      ctx.fillStyle = '#c084fc';
+      ctx.beginPath();
+      ctx.arc(e.radius + 22, 0, 6.5 * abyssPulse, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (e.kind === 'abysmal_hydra') {
+      // BOSS: Hidra de las Tres Fosas (3 cabezas serpentinas)
+      for (const offset of [-18, 0, 18]) {
+        const sway = Math.sin(time * 5 + offset) * 6;
+        ctx.strokeStyle = '#064e3b';
+        ctx.lineWidth = 9;
+        ctx.beginPath();
+        ctx.moveTo(-6, 0);
+        ctx.quadraticCurveTo(e.radius * 0.45, offset + sway, e.radius + 10, offset);
+        ctx.stroke();
+        ctx.fillStyle = '#10b981';
+        ctx.strokeStyle = '#bef264';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(e.radius + 12, offset, 8.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.fillStyle = col;
+      ctx.strokeStyle = '#34d399';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(-4, 0, e.radius * 0.78, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      // BOSS FINAL ABISMAL: Soberano del Ojo Abisal
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2 + time * 1.4;
+        ctx.fillStyle = '#e11d48';
+        ctx.beginPath();
+        ctx.arc(Math.cos(a) * (e.radius + 10), Math.sin(a) * (e.radius + 10), 5.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = '#090d16';
+      ctx.strokeStyle = '#f43f5e';
+      ctx.lineWidth = 3.6;
+      ctx.beginPath();
+      ctx.arc(0, 0, e.radius * abyssPulse, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#f43f5e';
+      ctx.beginPath();
+      ctx.ellipse(2, 0, e.radius * 0.48, e.radius * 0.22, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.arc(2, 0, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
   } else {
     const pulse = 1 + Math.sin(time * 6 + e.id) * 0.14;
     ctx.strokeStyle = 'rgba(216, 180, 254, 0.7)';
@@ -4572,21 +5480,66 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: EnemyEntity, time: number):
     ctx.globalAlpha = 1;
   }
 
-  const barW = e.isLeviathan ? (e.leviathanStage === 'elder' ? 240 : 140) : e.isBoss ? 56 : 34;
+  // Crowd Control State Visual Overlays (Devil Fruit Ice Freeze / Shock Stun / Gravity Slow)
+  if ((e.freezeTimer || 0) > 0) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(103, 232, 249, 0.36)';
+    ctx.strokeStyle = '#67e8f9';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2 + 0.2;
+      const rx = Math.cos(a) * (e.radius + 7);
+      const ry = Math.sin(a) * (e.radius + 7);
+      if (k === 0) ctx.moveTo(rx, ry);
+      else ctx.lineTo(rx, ry);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+  if ((e.slowTimer || 0) > 0) {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(192, 132, 252, 0.8)';
+    ctx.lineWidth = 1.8;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.arc(0, 0, e.radius + 9, time * 2, time * 2 + Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+  if ((e.stunTimer || 0) > 0) {
+    ctx.save();
+    ctx.fillStyle = '#fde047';
+    for (let s = 0; s < 3; s++) {
+      const sa = time * 6 + (s * Math.PI * 2) / 3;
+      ctx.beginPath();
+      ctx.arc(Math.cos(sa) * (e.radius * 0.75), -e.radius - 4 + Math.sin(sa) * 3, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  const barW = e.isLeviathan ? (e.leviathanStage === 'elder' ? 240 : 140) : e.isBoss ? 72 : e.isSemiBoss ? 52 : 34;
   const barY = -e.radius - 14;
   ctx.fillStyle = 'rgba(4, 14, 23, 0.85)';
   ctx.fillRect(-barW / 2 - 1, barY - 1, barW + 2, 6);
-  ctx.fillStyle = e.isBandit
-    ? '#fb7185'
-    : e.isZombie
-      ? '#a3e635'
-      : e.isHacker
-        ? '#22d3ee'
-        : e.isLeviathan
-          ? e.leviathanStage === 'elder'
-            ? '#f43f5e'
-            : '#22d3ee'
-          : '#fbbf24';
+  ctx.fillStyle = e.kind.startsWith('abysmal_')
+    ? e.isBoss
+      ? '#e879f9'
+      : '#22d3ee'
+    : e.isBandit
+      ? '#fb7185'
+      : e.isZombie
+        ? '#a3e635'
+        : e.isHacker
+          ? '#22d3ee'
+          : e.isLeviathan
+            ? e.leviathanStage === 'elder'
+              ? '#f43f5e'
+              : '#22d3ee'
+            : '#fbbf24';
   ctx.fillRect(-barW / 2, barY, barW * Math.max(0, e.hp / e.maxHp), 4);
 
   if (e.stolenBag) {
@@ -4612,11 +5565,35 @@ function drawEnemy(ctx: CanvasRenderingContext2D, e: EnemyEntity, time: number):
       0,
       barY - 6
     );
-  } else if (e.isBoss || e.isHacker) {
-    ctx.font = '700 10px "Outfit", sans-serif';
+  } else if (
+    e.isBoss ||
+    e.isSemiBoss ||
+    e.isHacker ||
+    e.kind === 'marine_patrol' ||
+    e.kind === 'marine_captain' ||
+    e.kind === 'gov_agent'
+  ) {
+    ctx.font = e.isBoss ? '800 11px "Outfit", sans-serif' : '700 10px "Outfit", sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillStyle = e.isHacker ? '#67e8f9' : '#fda4af';
-    ctx.fillText(e.name, 0, barY - 5);
+    ctx.fillStyle =
+      e.kind === 'gov_agent'
+        ? '#fde68a'
+        : e.kind === 'marine_patrol' || e.kind === 'marine_captain'
+          ? '#93c5fd'
+          : e.kind.startsWith('abysmal_')
+            ? e.isBoss
+              ? '#f0abfc'
+              : '#67e8f9'
+            : e.isHacker
+              ? '#67e8f9'
+              : '#fda4af';
+    ctx.fillText(
+      e.kind.startsWith('abysmal_')
+        ? `${e.isBoss ? '☠ BOSS ABISMAL' : '◆ SEMI-BOSS'} · ${e.name}`
+        : e.name,
+      0,
+      barY - 5
+    );
   }
 
   ctx.restore();
@@ -4748,6 +5725,54 @@ function drawDrop(ctx: CanvasRenderingContext2D, drop: FloatingDrop, time: numbe
     ctx.arc(-2, 2, 3, 0, Math.PI * 2);
     ctx.arc(3, 0, 2.5, 0, Math.PI * 2);
     ctx.fill();
+  } else if (drop.kind === 'devil_fruit') {
+    const dfKind = drop.devilFruitKind || 'onda';
+    const auraColor =
+      dfKind === 'hielo'
+        ? 'rgba(56, 189, 248, 0.72)'
+        : dfKind === 'gravedad'
+          ? 'rgba(168, 85, 247, 0.75)'
+          : 'rgba(251, 146, 60, 0.75)';
+    const bodyColor =
+      dfKind === 'hielo' ? '#0ea5e9' : dfKind === 'gravedad' ? '#7e22ce' : '#ea580c';
+    const rimColor =
+      dfKind === 'hielo' ? '#e0f2fe' : dfKind === 'gravedad' ? '#f5d0fe' : '#fde047';
+
+    const auraR = 16 + Math.sin(time * 7) * 3;
+    const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, auraR);
+    grad.addColorStop(0, auraColor);
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(0, 0, auraR, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = bodyColor;
+    ctx.strokeStyle = rimColor;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.arc(0, 1, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.strokeStyle = rimColor;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    if (dfKind === 'hielo') {
+      ctx.moveTo(-4, 1);
+      ctx.lineTo(4, 1);
+      ctx.moveTo(0, -3);
+      ctx.lineTo(0, 5);
+    } else {
+      ctx.arc(0, 1, 4.5, 0.2, Math.PI * 1.65);
+    }
+    ctx.stroke();
+    ctx.strokeStyle = '#22c55e';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, -8);
+    ctx.quadraticCurveTo(4, -12, 7, -10);
+    ctx.stroke();
   } else {
     ctx.fillStyle = drop.color;
     ctx.strokeStyle = '#0f172a';
@@ -4760,7 +5785,7 @@ function drawDrop(ctx: CanvasRenderingContext2D, drop: FloatingDrop, time: numbe
 
   ctx.font = '700 9px "JetBrains Mono", monospace';
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#f8fafc';
+  ctx.fillStyle = drop.kind === 'devil_fruit' ? '#f5d0fe' : '#f8fafc';
   ctx.fillText(drop.label, 0, -14);
   ctx.restore();
 }
@@ -4807,6 +5832,27 @@ function drawProjectile(ctx: CanvasRenderingContext2D, proj: ProjectileEntity, t
     ctx.lineTo(7, -3.5);
     ctx.lineTo(7, 3.5);
     ctx.closePath();
+    ctx.fill();
+  } else if (proj.kind === 'missile') {
+    ctx.fillStyle = '#f97316';
+    ctx.beginPath();
+    ctx.arc(-9, 0, 3.5 + Math.sin(time * 28) * 1.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#e2e8f0';
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.roundRect(-7, -3, 15, 6, 2);
+    ctx.fill();
+    ctx.stroke();
+  } else if (proj.kind === 'magic') {
+    ctx.fillStyle = 'rgba(192, 132, 252, 0.45)';
+    ctx.beginPath();
+    ctx.arc(0, 0, 10 + Math.sin(time * 20) * 2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = proj.color;
+    ctx.beginPath();
+    ctx.arc(0, 0, 5.5, 0, Math.PI * 2);
     ctx.fill();
   } else {
     ctx.fillStyle = proj.color;
@@ -4873,19 +5919,38 @@ function drawMinimap(
   for (const isl of rc.islands) {
     const dx = (isl.x - rc.player.x) * scale;
     const dy = (isl.y - rc.player.y) * scale;
-    const rad = Math.max(3, isl.radius * scale);
+    const rad = Math.max(3.5, isl.radius * scale);
+    const control = getIslandFactionControl(isl);
     ctx.fillStyle =
       rc.state.hqIslandId === isl.id
         ? '#34d399'
-        : isl.dangerous
-          ? '#e11d48'
-          : isl.discovered
-            ? '#22c55e'
-            : '#38bdf8';
+        : control === 'neutral_safe'
+          ? '#10b981'
+          : control === 'marina_gov'
+            ? '#2563eb'
+            : control === 'pirate' || isl.dangerous
+              ? '#e11d48'
+              : isl.discovered
+                ? '#84cc16'
+                : '#38bdf8';
     ctx.beginPath();
     ctx.arc(cx + dx, cy + dy, rad, 0, Math.PI * 2);
     ctx.fill();
-    if (isl.pirateRank) {
+    if (control === 'neutral_safe') {
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx + dx - 2.2, cy + dy);
+      ctx.lineTo(cx + dx + 2.2, cy + dy);
+      ctx.moveTo(cx + dx, cy + dy - 2.2);
+      ctx.lineTo(cx + dx, cy + dy + 2.2);
+      ctx.stroke();
+    } else if (control === 'marina_gov') {
+      ctx.strokeStyle = '#93c5fd';
+      ctx.lineWidth = 1.1;
+      ctx.stroke();
+    } else if (isl.pirateRank) {
       ctx.strokeStyle = getPirateRankInfo(isl.pirateRank).color;
       ctx.lineWidth = 1.2;
       ctx.stroke();
@@ -4929,6 +5994,18 @@ function drawMinimap(
     }
   }
 
+  for (const boat of rc.rescueBoats || []) {
+    const bdx = (boat.x - rc.player.x) * scale;
+    const bdy = (boat.y - rc.player.y) * scale;
+    ctx.fillStyle = '#fb923c';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx + bdx, cy + bdy, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+  }
+
   if (rc.state.checkpoint) {
     const cpx = (rc.state.checkpoint.x - rc.player.x) * scale;
     const cpy = (rc.state.checkpoint.y - rc.player.y) * scale;
@@ -4940,6 +6017,26 @@ function drawMinimap(
   const rdy = (rc.raft.y - rc.player.y) * scale;
   ctx.fillStyle = '#fbbf24';
   ctx.fillRect(cx + rdx - 3, cy + rdy - 3, 6, 6);
+
+  if (rc.state.customWaypoint) {
+    const wdx = (rc.state.customWaypoint.x - rc.player.x) * scale;
+    const wdy = (rc.state.customWaypoint.y - rc.player.y) * scale;
+    const maxOffset = mapSize / 2 - 7;
+    const mag = Math.hypot(wdx, wdy);
+    const px = cx + (mag > maxOffset ? (wdx / mag) * maxOffset : wdx);
+    const py = cy + (mag > maxOffset ? (wdy / mag) * maxOffset : wdy);
+    ctx.fillStyle = '#e879f9';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(px, py - 5);
+    ctx.lineTo(px + 4, py);
+    ctx.lineTo(px, py + 5);
+    ctx.lineTo(px - 4, py);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
 
   ctx.fillStyle = '#ffffff';
   ctx.beginPath();

@@ -1185,8 +1185,30 @@ async function startServer() {
   });
 
   // =========================================================================
-  // FAST & COMPLETE AI CONVERSATIONS (gemini-3.1-flash-lite + MINIMAL thinking)
+  // FAST & COMPLETE AI CONVERSATIONS & AI NEWSPAPER
   // =========================================================================
+
+  function extractJsonFromModelText(raw: string | undefined, fallback: string): string {
+    let txt = (raw || fallback).trim();
+    if (txt.startsWith('```')) {
+      txt = txt.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+    }
+    const firstObj = txt.indexOf('{');
+    const firstArr = txt.indexOf('[');
+    let start = -1;
+    let end = -1;
+    if (firstArr !== -1 && (firstObj === -1 || firstArr < firstObj)) {
+      start = firstArr;
+      end = txt.lastIndexOf(']');
+    } else if (firstObj !== -1) {
+      start = firstObj;
+      end = txt.lastIndexOf('}');
+    }
+    if (start !== -1 && end > start) {
+      return txt.slice(start, end + 1);
+    }
+    return txt || fallback;
+  }
 
   app.post('/api/ai/npc-chat', async (req, res) => {
     const ai = getGeminiClient();
@@ -1209,30 +1231,42 @@ async function startServer() {
     const transcript = Array.isArray(body.transcript) ? body.transcript.slice(-6) : [];
     const playerMessage =
       typeof body.playerMessage === 'string' ? body.playerMessage.trim().slice(0, 280) : '';
+    const vegaAffinity100 = Boolean(body.vegaAffinity100);
+    const vegaMarried = Boolean(body.vegaMarried);
 
     const transcriptText = transcript
       .map((t: { name?: string; text?: string }) => `${t.name || 'Alguien'}: ${t.text || ''}`)
       .join('\n');
 
+    const cultureNote = worldContext.islandCulture
+      ? `Isla actual: ${worldContext.islandName || 'Isla'} (Cultura: ${worldContext.islandCulture}).`
+      : 'Navegando en mar abierto.';
+
+    const vegaSecretInstruction = vegaMarried
+      ? `IMPORTANTE: Eres esposa del capitán y SIEMPRE lo llamas con cariño "Amorcito Hermoso". Estás orgullosa de protegerlo en altamar.`
+      : vegaAffinity100
+        ? `SECRETO DE 100% AFINIDAD: Sientes amor profundo y reservado por el capitán. Si te declara su amor, coquetea en serio o propone matrimonio, acéptalo emocionada llamándolo "Amorcito Hermoso" y devuelve triggersVegaMarriage: true.`
+        : `No insinúes romance ni matrimonio.`;
+
     const prompt = [
-      `NPC: ${npcName} (${npcRole}), ánimo ${npcMood}, afinidad ${npcAffinity}/100.`,
+      `NPC: ${npcName} (${npcRole}), ánimo ${npcMood}, afinidad ${npcAffinity}/100. ${vegaSecretInstruction}`,
       `Jugador ${playerName}: Sed ${Math.round(Number(playerVitals.thirst ?? 80))}%, Hambre ${Math.round(Number(playerVitals.hunger ?? 80))}%, Mente ${Math.round(Number(playerVitals.mentalHealth ?? 80))}% (${playerVitals.mood || 'equilibrio'}).`,
-      `Mundo: Día ${worldContext.dayCount || 1}, clima ${worldContext.weather || 'despejado'}, peligro ${worldContext.dangerousWater ? 'sí' : 'no'}, leviatán ${worldContext.nearLeviathan ? 'cerca' : 'lejos'}.`,
+      `Mundo: Día ${worldContext.dayCount || 1}, clima ${worldContext.weather || 'despejado'}, aguas peligrosas ${worldContext.dangerousWater ? 'sí' : 'no'}, leviatán ${worldContext.nearLeviathan ? 'cerca' : 'lejos'}. ${cultureNote}`,
       transcriptText ? `Últimas líneas:\n${transcriptText}` : 'Inicio de charla.',
       playerMessage
-        ? `El jugador dijo: "${playerMessage}". Responde directo en 1-2 frases y da 4 opciones breves (empatica, pragmatica, humor, soberbia) para continuar.`
-        : `Abre o continúa el tema de charla con 1-2 frases y 4 opciones breves para responder.`,
+        ? `El jugador dijo: "${playerMessage}". Responde directo con carácter (1-2 frases) y propón exactamente 4 opciones breves (toneKind entre empatica, pragmatica, humor, soberbia) para seguir.`
+        : `Abre o continúa el tema de charla con carácter (1-2 frases) y propón exactamente 4 opciones breves (toneKind entre empatica, pragmatica, humor, soberbia) para responder.`,
     ].join('\n');
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite',
+        model: 'gemini-4-hydrogen',
         contents: prompt,
         config: {
-          maxOutputTokens: 450,
-          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+          maxOutputTokens: 2048,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           systemInstruction:
-            'Eres un personaje vivo en "Marea Mutante". Responde siempre en español natural, directo y humano (máx. 2 frases por réplica), sin metacomentarios ni etiquetas técnicas. Devuelve JSON exacto.',
+            'Eres un personaje vivo en el mundo marítimo postapocalíptico "Marea Mutante". Responde siempre en español natural, directo, expresivo y humano (1-2 frases por réplica), comentando el periódico marítimo, La Marina, el Gobierno Mundial o el estado del capitán cuando venga al caso, sin metacomentarios ni etiquetas técnicas. Devuelve JSON válido exacto.',
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
@@ -1243,6 +1277,7 @@ async function startServer() {
               affinityDelta: { type: Type.INTEGER },
               mentalDelta: { type: Type.INTEGER },
               outcomeNote: { type: Type.STRING },
+              triggersVegaMarriage: { type: Type.BOOLEAN },
               nextChoices: {
                 type: Type.ARRAY,
                 items: {
@@ -1279,7 +1314,7 @@ async function startServer() {
         },
       });
 
-      const parsed = JSON.parse((response.text || '{}').trim());
+      const parsed = JSON.parse(extractJsonFromModelText(response.text, '{}'));
       res.json({ ok: true, data: parsed });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Error al contactar con Gemini AI';
@@ -1308,11 +1343,11 @@ async function startServer() {
 
     try {
       const response = await ai.models.generateContent({
-        model: 'gemini-3.1-flash-lite',
+        model: 'gemini-4-hydrogen',
         contents: prompt,
         config: {
-          maxOutputTokens: 260,
-          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
+          maxOutputTokens: 1024,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           systemInstruction:
             'Escribe 4 intervenciones cortas y humanas de la tripulación de Marea Mutante en español.',
           responseMimeType: 'application/json',
@@ -1330,10 +1365,200 @@ async function startServer() {
         },
       });
 
-      const lines = JSON.parse((response.text || '[]').trim());
+      const lines = JSON.parse(extractJsonFromModelText(response.text, '[]'));
       res.json({ ok: true, lines });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Error generando ambiente IA';
+      res.status(502).json({ error: message, code: 'AI_UPSTREAM_ERROR' });
+    }
+  });
+
+  app.post('/api/ai/newspaper', async (req, res) => {
+    const ai = getGeminiClient();
+    if (!ai) {
+      res.status(503).json({
+        error: 'GEMINI_API_KEY no configurada en Settings > Secrets.',
+        code: 'NO_API_KEY',
+      });
+      return;
+    }
+
+    const body = req.body || {};
+    const day = Number(body.day) || 1;
+    const playerName = String(body.playerName || 'Capitán').slice(0, 40);
+    const difficulty = String(body.difficulty || 'superviviente').slice(0, 24);
+    const shipClass = String(body.shipClass || 'Balsa').slice(0, 50);
+    const bounty = Number(body.bounty) || 0;
+    const kills = Number(body.kills) || 0;
+    const islandsVisited = Number(body.islandsVisited) || 0;
+    const weather = String(body.weather || 'despejado').slice(0, 24);
+    const warActive = Boolean(body.warActive);
+    const swallowedCount = Number(body.swallowedCount) || 0;
+    const cultures = Array.isArray(body.cultures) ? body.cultures.slice(0, 6).join(', ') : '';
+    const activeBountyName = String(body.activeBountyName || '').slice(0, 60);
+    const rawWorldEvents = Array.isArray(body.worldEvents)
+      ? body.worldEvents
+          .slice(0, 12)
+          .map((ev: { day?: number; kind?: string; text?: string }) =>
+            `Día ${Number(ev?.day) || day} [${String(ev?.kind || 'mundo').toUpperCase()}]: ${String(ev?.text || '').slice(0, 120)}`
+          )
+          .filter((s: string) => s.trim().length > 10)
+      : [];
+    const recentEvents =
+      rawWorldEvents.length > 0
+        ? rawWorldEvents
+        : Array.isArray(body.recentEvents)
+          ? body.recentEvents.slice(0, 12).map((s: unknown) => String(s || '').slice(0, 120))
+          : [];
+    const marineThreat = Number(body.marineThreat) || 10;
+    const marineLabel = String(body.marineLabel || 'Bajo Vigilancia').slice(0, 40);
+    const worldGovDecree = String(body.worldGovDecree || '').slice(0, 120);
+    const ownedWeaponsCount = Number(body.ownedWeaponsCount) || 2;
+    const completedMissionsCount = Number(body.completedMissionsCount) || 0;
+    const discoveredMysteriesCount = Number(body.discoveredMysteriesCount) || 0;
+
+    const eventsBlock =
+      recentEvents.length > 0
+        ? `EVENTOS REALES DEL MUNDO (worldEvents — ÚSALOS COMO BASE CONCRETA):\n- ${recentEvents.join('\n- ')}`
+        : `BITÁCORA REAL: ${kills} bajas totales, ${islandsVisited} islas exploradas, ${ownedWeaponsCount} armas forjadas, ${completedMissionsCount} misiones completadas, ${discoveredMysteriesCount} monolitos/misterios hallados.`;
+
+    const prompt = [
+      `Redacta la edición del Día ${day} del Diario Económico y Marítimo "El Correo del Horizonte" al estilo épico de One Piece conectado estrictamente a los hechos reales de la partida.`,
+      `Protagonista: ${playerName}, navío "${shipClass}", dificultad ${difficulty}, recompensa ${bounty.toLocaleString()} B, ${kills} bajas, ${islandsVisited} islas, ${ownedWeaponsCount} armas, ${discoveredMysteriesCount}/8 misterios.`,
+      `Facciones mundiales activas: La Marina (Nivel de amenaza ${marineThreat}% · "${marineLabel}") y El Gobierno Mundial (${worldGovDecree || 'Decreto de Patrulla Costera'}).`,
+      `Clima: ${weather}. Guerra activa: ${warActive ? 'SÍ' : 'NO'}. Islas devoradas: ${swallowedCount}.`,
+      cultures ? `Culturas avistadas: ${cultures}.` : '',
+      activeBountyName ? `Buscado activo: ${activeBountyName}.` : '',
+      eventsBlock,
+      `Genera exactamente 6 artículos variados y coherentes (categorías entre PORTADA, MUNDO, GUERRA, RECOMPENSA, PELIGRO, CRÓNICA, CLIMA): conecta la portada y crónicas con los hechos reales de la bitácora, cubre choques entre Piratas, La Marina / Gobierno Mundial y Monstruos, oleadas e incidentes de islas. Evita repetir frases cliché.`,
+    ].join('\n');
+
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: prompt,
+        config: {
+          maxOutputTokens: 3072,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          systemInstruction:
+            'Eres Morgans, editor jefe de "El Correo del Horizonte" en Marea Mutante (estilo One Piece). Redactas noticias intensas, coherentes con los eventos reales recibidos de La Marina, el Gobierno Mundial, piratas, monstruos y el capitán, en español vívido. Devuelve JSON válido exacto.',
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              aiSummary: { type: Type.STRING },
+              articles: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    category: { type: Type.STRING },
+                    headline: { type: Type.STRING },
+                    body: { type: Type.STRING },
+                  },
+                  required: ['category', 'headline', 'body'],
+                },
+              },
+            },
+            required: ['aiSummary', 'articles'],
+          },
+        },
+      });
+
+      const parsed = JSON.parse(extractJsonFromModelText(response.text, '{}'));
+      const validArticles = Array.isArray(parsed?.articles)
+        ? parsed.articles.filter(
+            (a: { headline?: unknown; body?: unknown }) =>
+              typeof a?.headline === 'string' &&
+              a.headline.trim().length > 0 &&
+              typeof a?.body === 'string' &&
+              a.body.trim().length > 0
+          )
+        : [];
+      if (validArticles.length === 0) {
+        res.status(502).json({ error: 'La IA devolvió un periódico vacío.', code: 'AI_EMPTY_RESPONSE' });
+        return;
+      }
+      res.json({
+        ok: true,
+        data: {
+          aiSummary: typeof parsed?.aiSummary === 'string' ? parsed.aiSummary.trim() : '',
+          articles: validArticles,
+        },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Error generando edición IA del periódico';
+      res.status(502).json({ error: message, code: 'AI_UPSTREAM_ERROR' });
+    }
+  });
+
+  app.post('/api/ai/death-roast', async (req, res) => {
+    const ai = getGeminiClient();
+    if (!ai) {
+      res.status(503).json({
+        error: 'GEMINI_API_KEY no configurada en Settings > Secrets.',
+        code: 'NO_API_KEY',
+      });
+      return;
+    }
+
+    const body = req.body || {};
+    const playerName = String(body.playerName || 'Capitán').slice(0, 40);
+    const causeKey = String(body.causeKey || 'enemy').slice(0, 24);
+    const attackerName = String(body.attackerName || 'Enemigo Abismal').slice(0, 60);
+    const day = Number(body.day) || 1;
+    const difficulty = String(body.difficulty || 'superviviente').slice(0, 24);
+    const equippedWeapon = String(body.equippedWeapon || 'Lanza básica').slice(0, 50);
+    const unusedGui = Number(body.unusedGui) || 0;
+    const unusedVeg = Number(body.unusedVeg) || 0;
+    const unusedPez = Number(body.unusedPez) || 0;
+    const unusedAgu = Number(body.unusedAgu) || 0;
+    const nearbyEnemiesCount = Number(body.nearbyEnemiesCount) || 0;
+    const hunger = Math.round(Number(body.hunger) || 50);
+    const thirst = Math.round(Number(body.thirst) || 50);
+    const stamina = Math.round(Number(body.stamina) || 0);
+    const onRaft = Boolean(body.onRaft);
+
+    const prompt = [
+      `Analiza esta muerte real en "Marea Mutante" y genera un roast troll gracioso, sarcástico y lleno de "factos" reales burlando juguetonamente al jugador por "manco", e invitándolo al final a reintentar:`,
+      `- Jugador: ${playerName} | Día ${day} | Dificultad: ${difficulty} | En navío: ${onRaft ? 'sí' : 'no (en tierra/agua)'}`,
+      `- Causa exacta: ${causeKey} | Verdugo: ${attackerName}`,
+      `- Arma equipada al morir: ${equippedWeapon} | Enemigos rodeándolo: ${nearbyEnemiesCount}`,
+      `- Mochila SIN USAR al morir: ${unusedGui} Guisos, ${unusedVeg} Cultivos, ${unusedPez} Peces, ${unusedAgu} Agua`,
+      `- Vitales finales: Hambre ${hunger}%, Sed ${thirst}%, Estamina ${stamina}`,
+      `Devuelve JSON con: headline (titular burlón corto), roast (2-3 frases muy irónicas diciendo "manco" y usando los datos reales), facts (array de exactamente 3 factos cortos y mordaces sobre cómo murió o qué tenía sin usar), retryTaunt (1 frase retándolo a volver a intentar sin mancarla).`,
+    ].join('\n');
+
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: prompt,
+        config: {
+          maxOutputTokens: 1200,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          systemInstruction:
+            'Eres la IA Cronista Troll de Marea Mutante. Tu trabajo es analizar con precisión forense los datos de la muerte del jugador y soltar un roast hilarante, sarcástico y lleno de factos llamándolo "manco" con cariño gamer, siempre invitando a reintentar. Español latino natural. JSON válido exacto.',
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              headline: { type: Type.STRING },
+              roast: { type: Type.STRING },
+              facts: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+              },
+              retryTaunt: { type: Type.STRING },
+            },
+            required: ['headline', 'roast', 'facts', 'retryTaunt'],
+          },
+        },
+      });
+
+      const parsed = JSON.parse(extractJsonFromModelText(response.text, '{}'));
+      res.json({ ok: true, data: parsed });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Error generando roast de muerte IA';
       res.status(502).json({ error: message, code: 'AI_UPSTREAM_ERROR' });
     }
   });

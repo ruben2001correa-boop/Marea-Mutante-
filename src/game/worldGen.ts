@@ -4,6 +4,7 @@ import type {
   DangerRank,
   IslandBiome,
   IslandEntity,
+  IslandFactionControl,
   IslandNode,
   WorldNpcEntity,
   WorldNpcRole,
@@ -151,6 +152,230 @@ const VILLAGE_NAMES: string[] = [
   'Fondeadero Real',
 ];
 
+export interface IslandCultureDef {
+  id: string;
+  name: string;
+  emblem: string;
+  color: string;
+  tradition: string;
+  greeting: string;
+}
+
+export const WORLD_CULTURES_CATALOG: IslandCultureDef[] = [
+  {
+    id: 'polinesia',
+    name: 'Polinesia Maorí',
+    emblem: '🌺',
+    color: '#2dd4bf',
+    tradition: 'Canoas dobles, tatuajes de marea y pescado al coco',
+    greeting: '¡Kia ora, navegante de las estrellas!',
+  },
+  {
+    id: 'nordica',
+    name: 'Nórdica Skjald',
+    emblem: '🛡️',
+    color: '#60a5fa',
+    tradition: 'Drakkars tallados, runas de hierro y arenque curado',
+    greeting: '¡Skål, viajero de los mares bravos!',
+  },
+  {
+    id: 'caribena',
+    name: 'Caribeña Antillana',
+    emblem: '🌴',
+    color: '#fbbf24',
+    tradition: 'Tambores de coral, especias marinas y ron de caña',
+    greeting: '¡Bienvenida sea tu vela a este puerto!',
+  },
+  {
+    id: 'nipona',
+    name: 'Nipona del Sol',
+    emblem: '⛩️',
+    color: '#f472b6',
+    tradition: 'Puentes carmesí, forja fina y té de algas',
+    greeting: '¡Irasshaimase, capitán de las olas!',
+  },
+  {
+    id: 'mediterranea',
+    name: 'Mediterránea Helénica',
+    emblem: '🏛️',
+    color: '#38bdf8',
+    tradition: 'Columnatas blancas, ánforas de aceite y olivos',
+    greeting: '¡Kalos orisate a nuestras costas!',
+  },
+  {
+    id: 'andina',
+    name: 'Andina del Altiplano',
+    emblem: '☀️',
+    color: '#f59e0b',
+    tradition: 'Terrazas de piedra, textiles dorados y quínoa marina',
+    greeting: '¡Allinllachu, caminante del mar!',
+  },
+  {
+    id: 'africana',
+    name: 'Costera Swahili',
+    emblem: '⚓',
+    color: '#34d399',
+    tradition: 'Velas latinas dhow, especias y talla en madera',
+    greeting: '¡Jambo, señor de las mareas!',
+  },
+  {
+    id: 'arabe',
+    name: 'Árabe de las Dunas',
+    emblem: '🌙',
+    color: '#fcd34d',
+    tradition: 'Astrolabios estelares, especias y dátiles dulces',
+    greeting: '¡Salam alaykum, marino del horizonte!',
+  },
+  {
+    id: 'celta',
+    name: 'Celta de la Bruma',
+    emblem: '🍀',
+    color: '#a3e635',
+    tradition: 'Menhires musgosos, arpas de hueso e hidromiel',
+    greeting: '¡Fáilte a nuestras rocas sagradas!',
+  },
+  {
+    id: 'mexica',
+    name: 'Mexica Tenochca',
+    emblem: '🦅',
+    color: '#fb7185',
+    tradition: 'Chinampas flotantes, obsidiana y cacao ancestral',
+    greeting: '¡Niltze! ¡Que el sol proteja tu quilla!',
+  },
+  {
+    id: 'eslava',
+    name: 'Eslava del Volga',
+    emblem: '🏰',
+    color: '#a78bfa',
+    tradition: 'Cúpulas de madera tallada, pieles y caldos calientes',
+    greeting: '¡Dobro pozhalovat al muelle!',
+  },
+  {
+    id: 'atlante',
+    name: 'Atlante Abisal',
+    emblem: '🔱',
+    color: '#22d3ee',
+    tradition: 'Cristales bioluminiscentes y forjas del Viejo Mundo',
+    greeting: '¡Salve, heredero de los mares profundos!',
+  },
+];
+
+export interface WorldMysteryDef {
+  id: string;
+  kind: 'mystery_monolith' | 'easter_egg';
+  title: string;
+  shortTag: string;
+  lore: string;
+  rewardOro: number;
+  rewardFame: number;
+  bonusKey?: 'cri' | 'tec' | 'frag_epico' | 'oro' | 'gui';
+  bonusAmount?: number;
+  color: string;
+}
+
+export const WORLD_MYSTERIES_CATALOG: WorldMysteryDef[] = [
+  {
+    id: 'myst_monolito_vacio',
+    kind: 'mystery_monolith',
+    title: 'Monolito del Siglo Vacío',
+    shortTag: 'Glifo Antiguo',
+    lore: 'Estela negra indestructible que narra cómo diez reyes hundieron el mundo antiguo antes de la Gran Marea.',
+    rewardOro: 4,
+    rewardFame: 85,
+    bonusKey: 'tec',
+    bonusAmount: 2,
+    color: '#22d3ee',
+  },
+  {
+    id: 'myst_sombrero_rey',
+    kind: 'easter_egg',
+    title: 'Sombrero de Paja del Primer Rey',
+    shortTag: 'Reliquia Secreta',
+    lore: 'Un sombrero tejido dorado reposa intacto sobre un timón petrificado: "La voluntad de navegar libre nunca muere".',
+    rewardOro: 5,
+    rewardFame: 110,
+    bonusKey: 'oro',
+    bonusAmount: 3,
+    color: '#fde047',
+  },
+  {
+    id: 'myst_caracol_dorado',
+    kind: 'easter_egg',
+    title: 'Caracol Dorado Transmisor',
+    shortTag: 'Huevo de Pascua',
+    lore: 'Un extraño caracol marino dormido que todavía murmura frecuencias cifradas de la vieja marina: "¡Puru-puru-puru!".',
+    rewardOro: 3,
+    rewardFame: 75,
+    bonusKey: 'tec',
+    bonusAmount: 2,
+    color: '#fbbf24',
+  },
+  {
+    id: 'myst_brujula_corazon',
+    kind: 'mystery_monolith',
+    title: 'Brújula que Apunta al Corazón',
+    shortTag: 'Altar Astral',
+    lore: 'No señala al norte sino al tesoro más cercano de tus sueños. Sus runas aún tibias vibran bajo tus dedos.',
+    rewardOro: 4,
+    rewardFame: 90,
+    bonusKey: 'cri',
+    bonusAmount: 1,
+    color: '#c084fc',
+  },
+  {
+    id: 'myst_bitacora_404',
+    kind: 'easter_egg',
+    title: 'Bitácora del Barco Fantasma 404',
+    shortTag: 'Error del Mar',
+    lore: 'Un diario sellado en botella dice: "Día 404: isla no encontrada en los mapas oficiales... pero juro que acampamos aquí".',
+    rewardOro: 4,
+    rewardFame: 80,
+    bonusKey: 'frag_epico',
+    bonusAmount: 1,
+    color: '#38bdf8',
+  },
+  {
+    id: 'myst_caliz_sal',
+    kind: 'mystery_monolith',
+    title: 'Cáliz de Sal Eterna',
+    shortTag: 'Estela Abisal',
+    lore: 'Columnata sumergida con coordenadas de un tesoro abisal perdido entre Leviatanes Ancianos.',
+    rewardOro: 4,
+    rewardFame: 95,
+    bonusKey: 'cri',
+    bonusAmount: 1,
+    color: '#34d399',
+  },
+  {
+    id: 'myst_calavera_rie',
+    kind: 'easter_egg',
+    title: 'La Calavera que Ríe',
+    shortTag: 'Jolly Roger Oculto',
+    lore: 'Una bandera pirata tallada en coral que suelta una carcajada metálica con la brisa: "¡El tesoro estuvo en la aventura!".',
+    rewardOro: 5,
+    rewardFame: 100,
+    bonusKey: 'gui',
+    bonusAmount: 2,
+    color: '#fb7185',
+  },
+  {
+    id: 'myst_pluma_morgana',
+    kind: 'mystery_monolith',
+    title: 'Crónica Prohibida de Morgana',
+    shortTag: 'Archivo Secreto',
+    lore: 'Páginas grabadas en bronce que predicen la guerra de los Cuatro Emperadores del Mar.',
+    rewardOro: 4,
+    rewardFame: 90,
+    bonusKey: 'frag_epico',
+    bonusAmount: 1,
+    color: '#a78bfa',
+  },
+];
+
+export const MYSTERY_MAP: Record<string, WorldMysteryDef> = Object.fromEntries(
+  WORLD_MYSTERIES_CATALOG.map((m) => [m.id, m])
+);
+
 function hash2D(cx: number, cy: number, salt = 0): number {
   let h = (cx * 374761393 + cy * 668265263 + salt * 1442695041) | 0;
   h = (h ^ (h >> 13)) * 1274126177;
@@ -193,17 +418,19 @@ export function generateChunkIsland(
   const distFromOrigin = Math.hypot(cx, cy);
   const biomeRoll = hash2D(cx, cy, 23);
 
-  // Periodic calm Sanctuary Safe Zones (even far into stormy seas!)
+  // Periodic calm Sanctuary Safe Zones (clearly visible across all oceans, even for the Pirate King!)
   const isSafeZone =
     (cx === 1 && cy === 0) ||
-    (!isGuaranteedStarter && Math.abs(cx + cy * 2) % 5 === 0 && hash2D(cx, cy, 991) > 0.62);
+    (!isGuaranteedStarter &&
+      Math.abs(cx * 3 + cy * 5) % 4 === 0 &&
+      hash2D(cx, cy, 991) > 0.34);
 
   let biome: IslandBiome = 'tropical';
   if (cx === 1 && cy === 0) biome = 'pradera';
   else if (cx === 0 && cy === -1) biome = 'minera';
   else if (cx === -1 && cy === 0) biome = 'desierto';
   else if (cx === 0 && cy === 1) biome = 'chatarra';
-  else if (isSafeZone) biome = biomeRoll > 0.5 ? 'tropical' : 'pradera';
+  else if (isSafeZone) biome = biomeRoll > 0.45 ? 'tropical' : 'pradera';
   else if (distFromOrigin >= 2.2 && biomeRoll > 0.84) biome = 'zombie';
   else if (distFromOrigin >= 3.2 && biomeRoll > 0.75) biome = 'abisal';
   else if (biomeRoll > 0.66) biome = 'volcanica';
@@ -254,6 +481,12 @@ export function generateChunkIsland(
     ? SAFE_ZONE_NAMES[Math.floor(hash2D(cx, cy, 997) * SAFE_ZONE_NAMES.length)]
     : names[Math.floor(hash2D(cx, cy, 37) * names.length)];
 
+  // Every island receives a distinct world culture spawned uniformly across ALL cultures regardless of biome
+  const culture =
+    WORLD_CULTURES_CATALOG[
+      Math.floor(hash2D(cx, cy, 313) * WORLD_CULTURES_CATALOG.length)
+    ];
+
   // Islander personality: hostile, foolish ("mensos"), or friendly
   const pRoll = hash2D(cx, cy, 733);
   const villagerPersonality: 'hostile' | 'foolish' | 'friendly' = isSafeZone
@@ -292,7 +525,14 @@ export function generateChunkIsland(
 
     let kind: IslandNode['kind'] = 'tree';
     const kr = hash2D(cx, cy, 400 + i);
-    if (pirateRank && i === 0) {
+    let mysteryId: string | undefined;
+    if (i === 5 && (isGuaranteedStarter || hash2D(cx, cy, 777) > 0.42)) {
+      const mIdx = Math.abs(cx * 31 + cy * 17 + (cx === 1 && cy === 0 ? 1 : 0)) % WORLD_MYSTERIES_CATALOG.length;
+      const mDef = WORLD_MYSTERIES_CATALOG[mIdx];
+      kind = mDef.kind;
+      mysteryId = mDef.id;
+      d = (0.48 + hash2D(cx, cy, 779) * 0.24) * radius;
+    } else if (pirateRank && i === 0) {
       kind = 'pirate_camp';
     } else if (hasVillage && i === 0) {
       kind = 'village';
@@ -320,6 +560,17 @@ export function generateChunkIsland(
         kind = hash2D(cx, cy, 449) > 0.5 ? 'shipwreck' : 'abandoned_bunker';
         if (kind === 'shipwreck') d = 0.78 * radius;
       }
+    } else if (
+      i === 4 &&
+      !isSafeZone &&
+      !pirateRank &&
+      biome !== 'pirata' &&
+      biome !== 'zombie' &&
+      !(cx === 0 && cy === 0) &&
+      hash2D(cx, cy, 459) > 0.56
+    ) {
+      kind = 'marine_checkpoint';
+      d = 0.74 * radius;
     } else if (i === 4 && hash2D(cx, cy, 461) > 0.36) {
       kind = biome === 'pirata' ? 'pirate_camp' : hash2D(cx, cy, 467) > 0.55 ? 'radio_tower' : 'abandoned_ruin';
     } else if ((biome === 'chatarra' || biome === 'abisal' || biome === 'zombie') && kr > 0.52) {
@@ -348,11 +599,13 @@ export function generateChunkIsland(
     const ny = y + Math.sin(a) * d;
 
     const hp =
-      kind === 'chest'
+      kind === 'chest' || kind === 'mystery_monolith' || kind === 'easter_egg'
         ? 1
         : kind === 'village'
           ? 240
-          : kind === 'fishing_post'
+          : kind === 'marine_checkpoint'
+            ? 260
+            : kind === 'fishing_post'
             ? 120
             : kind === 'pirate_camp'
               ? getPirateRankInfo(pirateRank || 'F').hp
@@ -384,11 +637,19 @@ export function generateChunkIsland(
       villageName:
         kind === 'village'
           ? VILLAGE_NAMES[Math.floor(hash2D(cx, cy, 501) * VILLAGE_NAMES.length)]
-          : kind === 'fishing_post'
-            ? 'Puesto Pesquero'
+          : kind === 'marine_checkpoint'
+            ? 'Puesto de Control Marina'
+            : kind === 'fishing_post'
+              ? 'Puesto Pesquero'
+              : undefined,
+      kingdomId:
+        kind === 'marine_checkpoint'
+          ? 'marina'
+          : kind === 'village' || kind === 'fishing_post'
+            ? kingdomId || 'coralia'
             : undefined,
-      kingdomId: kind === 'village' || kind === 'fishing_post' ? kingdomId || 'coralia' : undefined,
       pirateRank: kind === 'pirate_camp' ? pirateRank || 'F' : undefined,
+      mysteryId,
     });
   }
 
@@ -445,18 +706,37 @@ export function generateChunkIsland(
     });
   }
 
+  const hasMarineCheckpointNode = nodes.some((n) => n.kind === 'marine_checkpoint');
+  const islandFactionControl: IslandFactionControl | undefined = isSafeZone
+    ? 'neutral_safe'
+    : pirateRank || biome === 'pirata'
+      ? 'pirate'
+      : hasMarineCheckpointNode
+        ? 'marina_gov'
+        : (biome === 'pradera' || biome === 'tropical') && villagerPersonality === 'friendly' && !dangerous
+          ? 'neutral_safe'
+          : undefined;
+
   return {
     island: {
       id: islandId,
       chunkKey: `${cx},${cy}`,
       name,
       biome,
+      cultureId: culture.id,
+      cultureName: culture.name,
+      cultureColor: culture.color,
+      cultureEmblem: culture.emblem,
+      cultureTradition: culture.tradition,
+      cultureGreeting: culture.greeting,
+      regenTimer: 0,
       dangerous,
-      isSafeZone,
+      isSafeZone: isSafeZone || islandFactionControl === 'neutral_safe',
+      factionControl: islandFactionControl,
       villagerPersonality,
       pirateRank,
       hasVolcano,
-      kingdomId,
+      kingdomId: islandFactionControl === 'marina_gov' ? 'marina' : kingdomId,
       x,
       y,
       radius,
@@ -466,6 +746,29 @@ export function generateChunkIsland(
     },
     animals,
   };
+}
+
+export function getIslandFactionControl(
+  isl: IslandEntity
+): IslandFactionControl | 'wild' {
+  if (isl.factionControl) return isl.factionControl;
+  if (isl.isSafeZone) return 'neutral_safe';
+  if (isl.pirateRank || isl.biome === 'pirata') return 'pirate';
+  if (isl.nodes.some((n) => n.kind === 'marine_checkpoint' && !n.depleted)) return 'marina_gov';
+  return 'wild';
+}
+
+export function isPointInSafeZoneIsland(
+  px: number,
+  py: number,
+  islands: IslandEntity[]
+): IslandEntity | null {
+  for (const isl of islands) {
+    if (getIslandFactionControl(isl) === 'neutral_safe' && pointInIsland(px, py, isl)) {
+      return isl;
+    }
+  }
+  return null;
 }
 
 export function getIslandRadiusAtAngle(isl: IslandEntity, dx: number, dy: number): number {
@@ -609,23 +912,52 @@ const WORLD_NPC_CATALOG: Record<
   },
 };
 
-export function getStarterBargeWorldNpc(): WorldNpcEntity {
+export function getStarterDawnforgeGatePos(starterIsland?: IslandEntity): {
+  x: number;
+  y: number;
+  islandId: string;
+  islandName: string;
+} {
+  if (starterIsland) {
+    return {
+      x: starterIsland.x - starterIsland.radius * 0.34,
+      y: starterIsland.y + starterIsland.radius * 0.12,
+      islandId: starterIsland.id,
+      islandName: starterIsland.name,
+    };
+  }
+  const margin = 520;
+  const cx = 1;
+  const cy = 0;
+  const ix = cx * CHUNK_SIZE + margin + hash2D(cx, cy, 41) * (CHUNK_SIZE - margin * 2);
+  const iy = cy * CHUNK_SIZE + margin + hash2D(cx, cy, 53) * (CHUNK_SIZE - margin * 2);
+  const radius = 440 + hash2D(cx, cy, 67) * 220;
+  return {
+    x: ix - radius * 0.34,
+    y: iy + radius * 0.12,
+    islandId: 'isl_1_0',
+    islandName: SAFE_ZONE_NAMES[Math.floor(hash2D(cx, cy, 997) * SAFE_ZONE_NAMES.length)],
+  };
+}
+
+export function getStarterBargeWorldNpc(starterIsland?: IslandEntity): WorldNpcEntity {
   const cfg = WORLD_NPC_CATALOG.armero;
+  const pos = getStarterDawnforgeGatePos(starterIsland);
   return {
     id: 'wnpc_barge_armero',
     role: 'armero',
     name: 'Maestro Torren',
-    title: 'Armero del Pontón Libre',
-    islandId: 'barge_origin',
-    islandName: 'Pontón Forja del Alba',
-    x: 360,
-    y: -250,
+    title: 'Armero · Portón Forja del Alba',
+    islandId: pos.islandId,
+    islandName: pos.islandName,
+    x: pos.x + 28,
+    y: pos.y + 8,
     color: cfg.color,
     hatColor: cfg.hatColor,
     specialty: cfg.specialty,
     greeting: cfg.greeting,
-    discovered: true,
-    lastQuote: '¡Cuando juntes fragmentos épicos, ven a mi yunque en el Pontón!',
+    discovered: Boolean(starterIsland?.discovered),
+    lastQuote: '¡Los Portones Forja del Alba están en tierra firme! Ven a mi yunque en la isla.',
   };
 }
 

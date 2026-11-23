@@ -1,16 +1,22 @@
-import { Crosshair, Newspaper, Skull, Trophy, X } from 'lucide-react';
+import { AlertCircle, Bot, Crosshair, Newspaper, RefreshCw, Skull, Sparkles, Trophy, X } from 'lucide-react';
 import { getShipClassName, TITLE_MAP } from '../game/socialAndKingdoms';
 import type { PersistentState } from '../game/types';
 
 interface NewspaperModalProps {
   open: boolean;
   state: PersistentState;
+  aiLoading?: boolean;
+  aiError?: string | null;
+  onGenerateAiEdition?: () => void;
   onClose: () => void;
   onHuntBounty: (bountyId: string) => void;
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
-  PORTADA: 'text-amber-300 border-amber-400/50 bg-amber-400/10',
+  PORTADA: 'text-amber-300 border-amber-400/50 bg-amber-400/15',
+  PELIGRO: 'text-rose-300 border-rose-500/60 bg-rose-500/15',
+  CRÓNICA: 'text-fuchsia-300 border-fuchsia-400/50 bg-fuchsia-500/15',
+  GUERRA: 'text-orange-300 border-orange-400/55 bg-orange-500/15',
   RECOMPENSA: 'text-rose-300 border-rose-400/50 bg-rose-400/10',
   MUNDO: 'text-sky-300 border-sky-400/50 bg-sky-400/10',
   CLIMA: 'text-cyan-300 border-cyan-400/50 bg-cyan-400/10',
@@ -20,20 +26,23 @@ const CATEGORY_COLORS: Record<string, string> = {
 export function NewspaperModal({
   open,
   state,
+  aiLoading = false,
+  aiError = null,
+  onGenerateAiEdition,
   onClose,
   onHuntBounty,
 }: NewspaperModalProps) {
   if (!open) return null;
 
   const titleName = TITLE_MAP[state.activeTitleId]?.name || 'Náufrago';
-  const shipClass = getShipClassName(state.raft.level);
+  const shipClass = getShipClassName(state.raft.level, state.warshipNuclearShield);
   const claimedCount = state.pirateBounties.filter((b) => b.claimed).length;
 
   return (
     <div className="fixed inset-0 z-50 bg-[#030b14]/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
       <div className="w-full max-w-5xl max-h-[92vh] rounded-xl bg-[#071625] border border-[#2b5276] shadow-2xl flex flex-col overflow-hidden">
         {/* Masthead */}
-        <div className="flex items-center justify-between px-4 py-3 bg-[#0b1f33] border-b border-[#204464]">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 bg-[#0b1f33] border-b border-[#204464]">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-9 h-9 rounded-lg bg-amber-400/15 border border-amber-400/50 flex items-center justify-center shrink-0">
               <Newspaper className="w-5 h-5 text-amber-300" />
@@ -42,20 +51,60 @@ export function NewspaperModal({
               <h2 className="font-display text-lg sm:text-xl font-extrabold text-amber-200 tracking-wide truncate">
                 EL CORREO DEL HORIZONTE
               </h2>
-              <p className="text-[11px] text-slate-300 font-mono-num">
-                Edición #{state.newspaper.edition} · Día {state.dayCount} · Crónicas del Océano y Carteles de Se Busca
+              <p className="text-[11px] text-slate-300 font-mono-num truncate">
+                Edición #{state.newspaper.edition} · Día {state.dayCount} · Última Hora Marítima
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-2 rounded-lg bg-[#112c44] hover:bg-[#1a4163] text-slate-200 cursor-pointer shrink-0"
-            aria-label="Cerrar periódico"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            {onGenerateAiEdition && (
+              <button
+                type="button"
+                disabled={aiLoading}
+                onClick={onGenerateAiEdition}
+                className="min-h-[38px] inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600/25 hover:bg-emerald-600/40 disabled:opacity-50 border border-emerald-400/55 text-emerald-200 text-xs font-bold cursor-pointer"
+                title="Redactar crónica en vivo con Inteligencia Artificial según tu partida"
+              >
+                {aiLoading ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Bot className="w-3.5 h-3.5" />
+                )}
+                <span>{aiLoading ? 'Redactando IA...' : 'Edición Especial IA'}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-2 rounded-lg bg-[#112c44] hover:bg-[#1a4163] text-slate-200 cursor-pointer shrink-0"
+              aria-label="Cerrar periódico"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
+
+        {/* AI Error Banner if upstream failed */}
+        {aiError && (
+          <div className="px-4 py-2 bg-rose-950/75 border-b border-rose-500/45 flex items-center justify-between gap-2 text-[11px] text-rose-100">
+            <div className="flex items-center gap-2 min-w-0">
+              <AlertCircle className="w-3.5 h-3.5 text-rose-300 shrink-0" />
+              <span className="truncate">
+                Redacción IA no disponible ({aiError}) — mostrando edición local con eventos del mundo.
+              </span>
+            </div>
+            {onGenerateAiEdition && (
+              <button
+                type="button"
+                disabled={aiLoading}
+                onClick={onGenerateAiEdition}
+                className="px-2 py-0.5 rounded bg-rose-600/35 hover:bg-rose-600/55 border border-rose-400/50 text-[10px] font-bold text-rose-100 shrink-0 cursor-pointer"
+              >
+                Reintentar IA
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto deck-scroll p-4 grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -92,34 +141,70 @@ export function NewspaperModal({
               </div>
             </div>
 
+            {state.newspaper.aiSummary && (
+              <div className="rounded-lg bg-emerald-950/35 border border-emerald-400/40 px-3 py-2 text-xs text-emerald-200 flex items-start gap-2">
+                <Sparkles className="w-4 h-4 text-emerald-300 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold text-emerald-300">Editorial del Día: </span>
+                  <span>{state.newspaper.aiSummary}</span>
+                </div>
+              </div>
+            )}
+
             {/* Daily Gazette Articles */}
             <div className="space-y-2.5">
-              <div className="text-xs font-bold uppercase tracking-wider text-amber-300">
-                Noticias del Mundo · Día {state.dayCount}
+              <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-amber-300">
+                <span>Crónicas del Mundo · Día {state.dayCount}</span>
+                <span className="font-mono-num text-[10px] text-slate-400">
+                  {state.newspaper.articles.length} noticias activas
+                </span>
               </div>
-              {state.newspaper.articles.map((art) => (
-                <article
-                  key={art.id}
-                  className="rounded-lg bg-[#0b1f31] border border-[#1d3f5e] p-3 space-y-1.5"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span
-                      className={`text-[10px] font-extrabold px-2 py-0.5 rounded border ${
-                        CATEGORY_COLORS[art.category] || 'text-slate-200 border-slate-500'
-                      }`}
-                    >
-                      {art.category}
-                    </span>
-                    <span className="font-mono-num text-[10px] text-slate-400">
-                      Día {art.day}
-                    </span>
-                  </div>
+              {state.newspaper.articles.length === 0 ? (
+                <article className="rounded-lg bg-[#0b1f31] border border-[#1d3f5e] p-3 space-y-1.5">
+                  <span className="text-[10px] font-extrabold px-2 py-0.5 rounded border text-amber-300 border-amber-400/50 bg-amber-400/15">
+                    PORTADA
+                  </span>
                   <h3 className="text-sm font-bold text-slate-100 leading-snug">
-                    {art.headline}
+                    Edición en preparación desde el Cuartel de Noticias
                   </h3>
-                  <p className="text-xs text-slate-300 leading-relaxed">{art.body}</p>
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    {(state.recentEventsLog || []).length > 0
+                      ? `Último hecho confirmado: ${state.recentEventsLog![0].text}. Pulsa "Edición Especial IA" para actualizar el boletín completo.`
+                      : 'Las gaviotas corresponsales recorren las islas de La Marina, los bastiones piratas y las zonas seguras.'}
+                  </p>
                 </article>
-              ))}
+              ) : (
+                state.newspaper.articles.map((art) => (
+                  <article
+                    key={art.id}
+                    className="rounded-lg bg-[#0b1f31] border border-[#1d3f5e] p-3 space-y-1.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={`text-[10px] font-extrabold px-2 py-0.5 rounded border ${
+                            CATEGORY_COLORS[art.category] || 'text-slate-200 border-slate-500'
+                          }`}
+                        >
+                          {art.category}
+                        </span>
+                        {art.viaAi && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 border border-emerald-400/40 text-emerald-300">
+                            IA EN VIVO
+                          </span>
+                        )}
+                      </div>
+                      <span className="font-mono-num text-[10px] text-slate-400">
+                        Día {art.day}
+                      </span>
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-100 leading-snug">
+                      {art.headline}
+                    </h3>
+                    <p className="text-xs text-slate-300 leading-relaxed">{art.body}</p>
+                  </article>
+                ))
+              )}
             </div>
           </div>
 

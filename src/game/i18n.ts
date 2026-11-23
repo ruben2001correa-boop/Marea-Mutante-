@@ -44,6 +44,9 @@ const DICTIONARY: Record<SupportedLanguage, Record<string, string>> = {
     saveSuccess: '¡Partida guardada en el diario de a bordo!',
     deleteAccount: 'Eliminar cuenta',
     gamepadConnected: 'Control Bluetooth conectado',
+    fullscreen: 'Pantalla Completa',
+    exitFullscreen: 'Salir Pantalla Completa',
+    autoFullscreen: 'Pantalla Completa Automática (Ocultar barra móvil)',
   },
   en: {
     gameTitle: 'Mutant Tide',
@@ -74,6 +77,9 @@ const DICTIONARY: Record<SupportedLanguage, Record<string, string>> = {
     saveSuccess: 'Game saved to captain logbook!',
     deleteAccount: 'Delete Account',
     gamepadConnected: 'Bluetooth Controller Connected',
+    fullscreen: 'Fullscreen',
+    exitFullscreen: 'Exit Fullscreen',
+    autoFullscreen: 'Auto Fullscreen (Hide Mobile Nav Bar)',
   },
 };
 

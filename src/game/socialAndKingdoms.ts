@@ -24,6 +24,61 @@ export function getShipClassName(raftLevel: number, warshipNuclearShield = false
   return 'Balsa de Náufrago';
 }
 
+export interface SeaRankInfo {
+  label: 'Rey de los Piratas' | 'Emperador del Mar' | 'Guerrero del Mar' | 'Súper Nova';
+  shortLabel: string;
+  color: string;
+  bgClass: string;
+  borderClass: string;
+  textClass: string;
+  icon: string;
+}
+
+export function getSeaRankInfo(rank: number | null | undefined): SeaRankInfo {
+  if (rank === 1) {
+    return {
+      label: 'Rey de los Piratas',
+      shortLabel: 'Rey Pirata',
+      color: '#fde047',
+      bgClass: 'bg-amber-400/20',
+      borderClass: 'border-amber-300/75',
+      textClass: 'text-amber-200',
+      icon: '👑',
+    };
+  }
+  if (typeof rank === 'number' && rank >= 2 && rank <= 5) {
+    return {
+      label: 'Emperador del Mar',
+      shortLabel: 'Emperador',
+      color: '#f43f5e',
+      bgClass: 'bg-rose-500/20',
+      borderClass: 'border-rose-400/70',
+      textClass: 'text-rose-200',
+      icon: '🔱',
+    };
+  }
+  if (typeof rank === 'number' && rank >= 6 && rank <= 12) {
+    return {
+      label: 'Guerrero del Mar',
+      shortLabel: 'Guerrero Mar',
+      color: '#c084fc',
+      bgClass: 'bg-purple-500/20',
+      borderClass: 'border-purple-400/65',
+      textClass: 'text-purple-200',
+      icon: '⚔️',
+    };
+  }
+  return {
+    label: 'Súper Nova',
+    shortLabel: 'Súper Nova',
+    color: '#38bdf8',
+    bgClass: 'bg-sky-500/20',
+    borderClass: 'border-sky-400/60',
+    textClass: 'text-sky-200',
+    icon: '🌟',
+  };
+}
+
 export const COUNTRY_OPTIONS: Array<{ code: string; name: string }> = [
   { code: 'CO', name: 'Colombia' },
   { code: 'MX', name: 'México' },
@@ -102,43 +157,110 @@ export const INITIAL_PIRATE_BOUNTIES: PirateBounty[] = [
   },
 ];
 
+export const WORLD_GOV_DECREES: string[] = [
+  'Decreto I: Patrullas de La Marina autorizadas a interceptar balsas sospechosas',
+  'Decreto II: Bloqueo Mundial — Recompensas activan capitanes navales élite',
+  'Decreto III: Ley del Siglo Vacío — Agentes del Gobierno custodian monolitos antiguos',
+  'Decreto IV: Estado de Calamidad — Fuerza conjunta Marina y Gobierno en alta mar',
+];
+
+export function getMarineWantedLevel(state: PersistentState): {
+  stars: 1 | 2 | 3 | 4 | 5;
+  label: string;
+  color: string;
+  threat: number;
+  agentsActive: boolean;
+} {
+  const baseThreat = typeof state.marineThreat === 'number' ? state.marineThreat : 10;
+  const bountyScore = Math.floor((state.bounty || 0) / 18000000);
+  const pillageScore = (state.stats?.villagesPillaged || 0) * 14;
+  const threat = Math.max(0, Math.min(100, Math.round(baseThreat + bountyScore * 6 + pillageScore * 0.4)));
+  if (threat >= 82 || state.bounty >= 140000000) {
+    return { stars: 5, label: 'Objetivo Gobierno Mundial', color: '#f43f5e', threat, agentsActive: true };
+  }
+  if (threat >= 60 || state.bounty >= 65000000) {
+    return { stars: 4, label: 'Alerta Máxima Marina', color: '#fb923c', threat, agentsActive: true };
+  }
+  if (threat >= 38 || state.bounty >= 25000000) {
+    return { stars: 3, label: 'Persecución Naval', color: '#facc15', threat, agentsActive: false };
+  }
+  if (threat >= 18) {
+    return { stars: 2, label: 'Bajo Vigilancia', color: '#38bdf8', threat, agentsActive: false };
+  }
+  return { stars: 1, label: 'Sin Captura Prioritaria', color: '#94a3b8', threat, agentsActive: false };
+}
+
 export function generateDailyNewsArticles(
   state: PersistentState,
   weather: WeatherType,
-  day: number
+  day: number,
+  activeCultures: string[] = []
 ): NewsArticle[] {
   const playerTag = state.clan.founded ? `[${state.clan.tag}] ` : '';
   const playerName = state.playerProfile.name || 'Capitán';
   const warKingdom = state.kingdoms.find((k) => k.atWar);
   const conqueredKingdom = state.kingdoms.find((k) => k.conquered);
   const activeBounty = state.pirateBounties.find((b) => !b.claimed);
+  const swallowedCount = state.swallowedIslands?.length || 0;
+  const discoveredMyst = state.discoveredMysteries?.length || 0;
+  const recentLogs = Array.isArray(state.recentEventsLog) ? state.recentEventsLog : [];
+  const wanted = getMarineWantedLevel(state);
+  const decree = state.worldGovDecree || WORLD_GOV_DECREES[day % WORLD_GOV_DECREES.length];
+  const cultureFocus =
+    activeCultures.length > 0
+      ? activeCultures[day % activeCultures.length]
+      : 'Polinesia Maorí, Nórdica Skjald y Mexica Tenochca';
+
+  const latestCombatLog = recentLogs.find((e) => e.kind === 'combat' || e.kind === 'boss' || e.kind === 'marina');
+  const latestExploreLog = recentLogs.find((e) => e.kind === 'explore' || e.kind === 'mystery' || e.kind === 'mission');
+  const latestForgeLog = recentLogs.find((e) => e.kind === 'forge');
 
   const portadaHeadline = conqueredKingdom
-    ? `¡${playerTag}${playerName} conquista territorios del reino!`
+    ? `🔥 ¡EXTRA! ¡CAÍDA DE UN REINO! ${playerTag}${playerName} conquista ${conqueredKingdom.id.toUpperCase()} frente a La Marina`
     : warKingdom
-      ? `¡Tambores de guerra en los Siete Mares contra ${playerName}!`
-      : state.raft.level >= 7
-        ? `¡Avistan un colosal ${getShipClassName(state.raft.level, state.warshipNuclearShield)} capitaneado por ${playerName}!`
-        : state.stats.villagesPillaged > 0
-          ? `¡Alerta marítima! La recompensa por ${playerTag}${playerName} sube a ${state.bounty.toLocaleString()} B`
-          : `¡Nuevo navegante ${playerTag}${playerName} surca el horizonte en el Día ${day}!`;
+      ? `⚔️ ¡GUERRA TOTAL EN LOS MARES! ${playerName} desafía a ${warKingdom.id.toUpperCase()} y altera las rutas`
+      : latestCombatLog
+        ? `📰 ¡ÚLTIMA HORA! ${latestCombatLog.text}`
+        : state.raft.level >= 7
+          ? `☢️ ¡BUQUE NUCLEAR AVISTADO! El Gobierno Mundial vigila los movimientos de ${playerName}`
+          : `📰 ¡BOLETÍN DEL DÍA ${day}! ${playerTag}${playerName} sacude el archipiélago (${state.bounty.toLocaleString()} B)`;
+
+  const recentSummaryText =
+    recentLogs.length > 0
+      ? `Bitácora verificada: ${recentLogs
+          .slice(0, 2)
+          .map((x) => x.text)
+          .join(' · ')}.`
+      : `Registro naval: ${state.stats.banditKills} enemigos batidos, ${state.stats.islandsVisited} islas cartografiadas y ${state.ownedWeapons.length} armas en armería.`;
 
   const portadaBody = conqueredKingdom
-    ? `Fuentes del Correo del Horizonte confirman que la flota de ${playerName} dominó la última Guerra de Islas. Las rutas comerciales cambian de manos.`
-    : state.bounty >= 50000000
-      ? `Con ${state.stats.banditKills} piratas abatidos y ${state.stats.islandsVisited} islas cartografiadas, ${playerName} ya figura entre los capitanes más temidos del océano.`
-      : `La Marina del Mundo Antiguo mantiene vigilancia sobre ${playerTag}${playerName} (${getShipClassName(state.raft.level, state.warshipNuclearShield)} Nv.${state.raft.level}).`;
+    ? `Con la caída de ${conqueredKingdom.id.toUpperCase()}, el navío "${getShipClassName(state.raft.level, state.warshipNuclearShield)}" obliga al Gobierno Mundial a reescribir sus cartas náuticas. ${recentSummaryText}`
+    : `${recentSummaryText} Nivel de búsqueda ante La Marina: ${wanted.label} (${wanted.stars}★).`;
+
+  const govHeadline = wanted.agentsActive
+    ? `🏛️ ¡GOBIERNO MUNDIAL ACTIVA AGENTES ÉLITE CONTRA ${playerName.toUpperCase()}!`
+    : `⚓ ¡LA MARINA REFUERZA PUESTOS DE CONTROL! ${decree.split(':')[0]}`;
+
+  const govBody = wanted.agentsActive
+    ? `${decree}. El Almirantazgo y agentes encubiertos del Gobierno Mundial rastrean tu ${getShipClassName(state.raft.level, state.warshipNuclearShield)} por todo el cuadrante.`
+    : `${decree}. Patrullas de La Marina vigilan costas y rutas comerciales mientras persiguen piratas con cartel activo.`;
 
   const weatherNews: Record<WeatherType, string> = {
-    despejado: 'Cielos despejados favorecen expediciones hacia islas mineras, zonas zombis y santuarios.',
-    brisa: 'Vientos alisios impulsan las velas un +18% más rápido en todo el cuadrante.',
-    lluvia: 'Lluvias cálidas riegan cultivos en balsas e islas acelerando cosechas.',
-    tormenta: '¡Precaución! Tormenta eléctrica en curso; busca una Zona Segura si el casco cruje.',
-    niebla: 'Banco de niebla espesa reduce la visibilidad; hackers y corsarios aprovechan para emboscar.',
-    oleaje: 'Fuerte marejada frena la navegación; refuerza el casco y los muros de tu isla.',
+    despejado:
+      'Visibilidad despejada: patrullas de La Marina inspeccionan veleros en altamar.',
+    brisa:
+      'Vientos alisios favorecen el comercio entre colonias libres y el despliegue rápido de fragatas.',
+    lluvia:
+      'Lluvia constante nutre los cultivos isleños mientras reduce el alcance de bengalas corsarias.',
+    tormenta:
+      '⚡ ¡TORMENTA DEL NUEVO MUNDO! Rayos castigan cubiertas sin blindaje y agitan las aguas abisales.',
+    niebla:
+      '🌫️ ¡NIEBLA ESPESA! Contrabandistas y agentes del Gobierno maniobran fuera del radar.',
+    oleaje:
+      '🌊 ¡MAREJADA ALTA! Olas gigantes ponen a prueba cascos y fortificaciones costeras.',
   };
 
-  return [
+  const articles: NewsArticle[] = [
     {
       id: `news_${day}_1`,
       category: 'PORTADA',
@@ -148,30 +270,167 @@ export function generateDailyNewsArticles(
     },
     {
       id: `news_${day}_2`,
-      category: 'RECOMPENSA',
-      headline: activeBounty
-        ? `SE BUSCA: ${activeBounty.name} — ${activeBounty.bountyValue.toLocaleString()} B`
-        : '¡Todos los grandes piratas del sector han sido capturados!',
-      body: activeBounty
-        ? `${activeBounty.description} Recompensa oficial: +${activeBounty.rewardOro} Oro y +${activeBounty.rewardFame} Fama.`
-        : 'La paz temporal reina en los muelles principales, aunque los Leviatanes Viejos siguen acechando.',
+      category: 'MUNDO',
+      headline: govHeadline,
+      body: govBody,
       day,
     },
     {
       id: `news_${day}_3`,
-      category: 'MUNDO',
-      headline: 'Señales de radio, fragmentos celestiales y brotes zombi en altamar',
-      body: `Antenas detectan Fragmentos Nucleares y Celestiales en islas lejanas, mientras hackers marinos sabotean barcos sin defensa. Islas visitadas: ${state.stats.islandsVisited}.`,
+      category: 'CRÓNICA',
+      headline: latestExploreLog
+        ? `🧭 ¡CRÓNICA DE EXPEDICIÓN! ${latestExploreLog.text}`
+        : `🌍 Culturas de ${cultureFocus} fortalecen sus asentamientos`,
+      body: latestForgeLog
+        ? `En los talleres del archipiélago destacó un hito reciente: ${latestForgeLog.text}. Mientras tanto, ${discoveredMyst}/8 misterios antiguos han sido descifrados.`
+        : `Exploradores registran ${state.stats.islandsVisited} islas visitadas y ${discoveredMyst}/8 misterios antiguos desvelados en el océano mutante.`,
       day,
     },
     {
       id: `news_${day}_4`,
+      category: 'RECOMPENSA',
+      headline: activeBounty
+        ? `💰 ¡CARTEL DEL DÍA! ${activeBounty.name} — ${activeBounty.bountyValue.toLocaleString()} B`
+        : '👑 ¡TODOS LOS CARTELES HISTÓRICOS CAÍDOS! Recompensas sobre Súper Novas',
+      body: activeBounty
+        ? `${activeBounty.description} La Marina y el Tribunal Marítimo ofrecen +${activeBounty.rewardOro} Oro y +${activeBounty.rewardFame} Fama por su captura.`
+        : `Con los corsarios clásicos derrotados, el Gobierno Mundial apunta directamente a la recompensa actual de ${playerName}: ${state.bounty.toLocaleString()} B.`,
+      day,
+    },
+    {
+      id: `news_${day}_5`,
+      category: 'PELIGRO',
+      headline:
+        swallowedCount > 0
+          ? `🐋 ¡ALERTA ABISMAL! ${swallowedCount} islas devoradas · Barcos de rescate activos`
+          : '🗿 Jefes Abisales custodian sus territorios y Fragmentos de Fruta del Demonio',
+      body:
+        swallowedCount > 0
+          ? `Operativos de rescate evacuan supervivientes hacia islas seguras mientras los Leviatanes Viejos patrullan las fosas profundas.`
+          : `Navegantes reportan fragmentos misteriosos de Frutas del Demonio caídos en combate y jefes abisales que defienden feroces sus guaridas.`,
+      day,
+    },
+    {
+      id: `news_${day}_6`,
       category: 'CLIMA',
-      headline: `Boletín Meteorológico · Día ${day}: ${weather.toUpperCase()}`,
+      headline: `⛈️ Parte de Navegación · Día ${day}: ${weather.toUpperCase()}`,
       body: weatherNews[weather],
       day,
     },
   ];
+
+  return articles;
+}
+
+const VALID_NEWS_CATEGORIES = new Set<NewsArticle['category']>([
+  'PORTADA',
+  'MUNDO',
+  'RECOMPENSA',
+  'CLIMA',
+  'ECONOMÍA',
+  'CRÓNICA',
+  'PELIGRO',
+  'GUERRA',
+]);
+
+export async function requestAiNewspaperArticles(
+  state: PersistentState,
+  weather: WeatherType,
+  day: number,
+  activeCultures: string[]
+): Promise<{
+  ok: boolean;
+  articles?: NewsArticle[];
+  aiSummary?: string;
+  error?: string;
+}> {
+  const recentEvents = (state.recentEventsLog || []).slice(0, 12).map((ev) => ({
+    day: ev.day,
+    kind: ev.kind,
+    text: ev.text,
+  }));
+  const activeBounty = state.pirateBounties.find((b) => !b.claimed);
+  const wanted = getMarineWantedLevel(state);
+  const completedMissionsCount = (state.storyMissions || []).filter((m) => m.status === 'completed').length;
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 24000);
+  try {
+    const res = await fetch('/api/ai/newspaper', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        day,
+        playerName: state.playerProfile.name,
+        difficulty: state.difficulty,
+        shipClass: getShipClassName(state.raft.level, state.warshipNuclearShield),
+        bounty: state.bounty,
+        kills: state.stats.kills,
+        islandsVisited: state.stats.islandsVisited,
+        weather,
+        warActive: state.kingdoms.some((k) => k.atWar),
+        swallowedCount: state.swallowedIslands?.length || 0,
+        cultures: activeCultures,
+        activeBountyName: activeBounty ? `${activeBounty.name} (${activeBounty.bountyValue.toLocaleString()} B)` : '',
+        worldEvents: recentEvents,
+        recentEvents: recentEvents.map((ev) => `Día ${ev.day}: ${ev.text}`),
+        marineThreat: wanted.threat,
+        marineLabel: wanted.label,
+        worldGovDecree: state.worldGovDecree || WORLD_GOV_DECREES[day % WORLD_GOV_DECREES.length],
+        ownedWeaponsCount: state.ownedWeapons?.length || 0,
+        completedMissionsCount,
+        discoveredMysteriesCount: state.discoveredMysteries?.length || 0,
+      }),
+    });
+    let payload: { ok?: boolean; error?: string; data?: { aiSummary?: string; articles?: Array<{ category?: string; headline?: string; body?: string }> } } | null = null;
+    try {
+      payload = await res.json();
+    } catch {
+      payload = null;
+    }
+    if (!res.ok || !payload?.ok || !payload?.data) {
+      return {
+        ok: false,
+        error: payload?.error || `Error del servidor de noticias IA (${res.status})`,
+      };
+    }
+    const rawList = Array.isArray(payload.data.articles) ? payload.data.articles : [];
+    const mapped: NewsArticle[] = rawList
+      .filter((a) => Boolean(a?.headline && a?.body))
+      .slice(0, 8)
+      .map((a, idx) => {
+        const upper = String(a.category || 'MUNDO').toUpperCase() as NewsArticle['category'];
+        const category = VALID_NEWS_CATEGORIES.has(upper) ? upper : 'MUNDO';
+        return {
+          id: `ai_news_${day}_${Date.now()}_${idx}`,
+          category,
+          headline: String(a.headline).trim(),
+          body: String(a.body).trim(),
+          day,
+          viaAi: true,
+        };
+      });
+    if (mapped.length === 0) {
+      return { ok: false, error: 'La IA devolvió una edición vacía.' };
+    }
+    return {
+      ok: true,
+      articles: mapped,
+      aiSummary: typeof payload.data.aiSummary === 'string' ? payload.data.aiSummary : undefined,
+    };
+  } catch (err) {
+    const isAbort = err instanceof Error && err.name === 'AbortError';
+    return {
+      ok: false,
+      error: isAbort
+        ? 'La redacción IA tardó demasiado en responder.'
+        : err instanceof Error
+          ? err.message
+          : 'No se pudo conectar con la redacción IA.',
+    };
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 export const CROPS_CATALOG: CropDef[] = [
@@ -456,6 +715,24 @@ export const KINGDOMS_CATALOG: KingdomDef[] = [
     specialty: 'Abordajes, Pólvora y Guerra de Islas',
     color: '#fb7185',
     description: 'Corsarios agresivos que abordan barcos desprevenidos.',
+  },
+  {
+    id: 'marina',
+    name: 'La Marina Naval',
+    ruler: 'Almirante de Flota Vaelen',
+    specialty: 'Patrullas, Puestos de Control y Caza de Piratas',
+    color: '#60a5fa',
+    description:
+      'Brazo armado del orden marítimo. Vigila costas, levanta puestos de control y persigue capitanes con cartel activo.',
+  },
+  {
+    id: 'gobierno_mundial',
+    name: 'El Gobierno Mundial',
+    ruler: 'Consejo de los Cinco Mares',
+    specialty: 'Decretos Supremos, Zonas Restringidas y Agentes Élite',
+    color: '#e2e8f0',
+    description:
+      'Máxima autoridad planetaria. Dicta leyes marítimas globales, censura el Siglo Vacío y envía agentes élite cuando subes de amenaza.',
   },
 ];
 
